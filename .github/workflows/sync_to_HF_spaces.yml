@@ -17,4 +17,4 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.TOKEN }}
-        run: git push https://vssksn:$HF_TOKEN@huggingface.co/spaces/vssksn/intellicredit-openenv main
+        run: git push --force https://vssksn:$HF_TOKEN@huggingface.co/spaces/vssksn/intellicredit-openenv main
