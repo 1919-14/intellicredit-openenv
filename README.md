@@ -141,7 +141,7 @@ You can manually play as the AI agent directly via our deployed Swagger UI!
 ## 💻 Local Setup & Installation
 
 ### 1. Prerequisites
-- Python 3.10+
+- Python 3.11+
 - `uv` (recommended) or `pip`
 
 ### 2. Installation
