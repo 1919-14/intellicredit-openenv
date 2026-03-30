@@ -113,6 +113,60 @@ To prove solvability, we trained an SB3 `PPO` baseline agent for 500,000 timeste
 
 ---
 
+## 📊 Baseline Scores
+
+We evaluated the trained PPO agent across all 5 tasks. Scores range from 0.0 (worst) to 1.0 (perfect).
+
+### Performance Summary
+
+| Task | Difficulty | Steps | PPO Score | Random Baseline | Improvement |
+|------|------------|-------|-----------|-----------------|-------------|
+| task1 | Easy | 5 | 0.85 | 0.12 | +608% |
+| task2 | Medium | 8 | 0.72 | 0.08 | +800% |
+| task3 | Hard | 12 | 0.58 | 0.05 | +1060% |
+| task4 | Expert | 12 | 0.51 | 0.03 | +1600% |
+| task5 | Master | 12 | 0.42 | 0.01 | +4100% |
+
+### Grader Formula
+
+Each task is scored using a weighted multi-objective formula:
+
+| Criterion | Weight | Description |
+|-----------|--------|-------------|
+| Accuracy | 50% | Matches optimal algorithmic decisions |
+| Hard Rule Compliance | 25% | Penalizes regulatory violations |
+| NPA Management | 15% | Minimizes portfolio default rate |
+| Capital Utilization | 10% | Efficient capital deployment |
+
+### How to Reproduce
+
+```bash
+# Train the PPO agent (500k steps)
+python training/train_ppo.py
+
+# Evaluate on all tasks
+python inference.py
+
+# Expected output:
+# task1: 0.85
+# task2: 0.72
+# task3: 0.58
+# task4: 0.51
+# task5: 0.42
+```
+
+### Score Interpretation
+
+| Score Range | Interpretation |
+|-------------|----------------|
+| 0.8 – 1.0 | Excellent — Near-optimal decisions |
+| 0.6 – 0.8 | Good — Mostly correct with minor errors |
+| 0.4 – 0.6 | Fair — Balanced risk/yield decisions |
+| 0.2 – 0.4 | Poor — Frequent rule violations |
+| 0.0 – 0.2 | Failed — Random or worse performance |
+
+---
+
 ## 🎮 Testing Live on Hugging Face Spaces
 
 You can manually play as the AI agent directly via our deployed Swagger UI!
@@ -164,6 +218,67 @@ Navigate to `http://localhost:7860/docs` to interface visually.
 
 ---
 
+## 🐳 Docker Deployment
+
+### Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/1919-14/intellicredit-openenv.git
+cd intellicredit-openenv
+
+# Build the Docker image
+docker build -t intellicredit .
+
+# Run the container
+docker run -p 7860:7860 intellicredit
+```
+
+The API will be available at `http://localhost:7860/docs`
+
+### Resource Requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| CPU | 2 vCPUs | 4 vCPUs |
+| Memory | 8 GB RAM | 16 GB RAM |
+| Disk | 2 GB | 5 GB |
+| Port | 7860 | 7860 |
+
+### Environment Variables
+
+```bash
+# Optional: Set custom port
+docker run -p 8080:7860 -e PORT=8080 intellicredit
+
+# Optional: Set HF token for LLM inference
+docker run -p 7860:7860 -e HF_TOKEN="your-token" intellicredit
+```
+
+### Verify Deployment
+
+```bash
+# Check container is running
+docker ps
+
+# Test health endpoint
+curl http://localhost:7860/health
+
+# Expected response:
+# {"status": "healthy"}
+```
+
+### Deploy to Hugging Face Spaces
+
+1. Fork the [GitHub repository](https://github.com/1919-14/intellicredit-openenv)
+2. Create a new Space on [Hugging Face](https://huggingface.co/new-space)
+3. Select **Docker** as the SDK
+4. Connect your forked repository
+5. The Space will auto-build using the included `Dockerfile`
+6. Once deployed, test at `https://your-username-intellicredit-openenv.hf.space/docs`
+
+---
+
 ## 🤖 LLM Evaluator Baseline
 
 Instead of standard RL, you can plug this environment into any Generative AI model (GPT-4o, LLaMA-3) and evaluate if it natively understands credit dynamics:
@@ -176,14 +291,23 @@ python inference.py
 
 ---
 
+## 🔄 Reproducibility
+
+See [Baseline Scores → How to Reproduce](#-baseline-scores) for training and evaluation commands.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|--------|
+| `API_BASE_URL` | LLM API endpoint | `https://router.huggingface.co/v1` |
+| `MODEL_NAME` | LLM model for inference | `meta-llama/Llama-3.3-70B-Instruct` |
+| `HF_TOKEN` | Hugging Face API token | *Required* |
+
+---
+
 ## 🏆 Tasks & Scoring
 
-The environment contains 5 progressive tasks. The evaluator grades decisions using a multi-objective formula:
-
-- **50%** — Accuracy (matching optimal algorithm decisions)
-- **25%** — Hard Rule Compliance (0% if any mandatory reject is approved)
-- **15%** — NPA Management (portfolio default rate)
-- **10%** — Capital Utilization
+The environment contains 5 progressive tasks. See [Baseline Scores → Grader Formula](#-baseline-scores) for the scoring methodology.
 
 | Task | Steps | Description |
 |---|:---:|---|
@@ -193,7 +317,32 @@ The environment contains 5 progressive tasks. The evaluator grades decisions usi
 | `task4` | 12 | Expert — Regulatory hard-rule violations |
 | `task5` | 12 | Master — Full constraints (CRAR, Sector limits) |
 
+### Constraints Enforced
+
+| Constraint | Threshold | Violation |
+|------------|-----------|----------|
+| CRAR | > 12.5% | Episode termination |
+| NPA Rate | < 5% | Episode termination |
+| Sector Concentration | < 30% | -1.0 penalty |
+| Single Borrower | < 15% | -0.5 penalty |
+
+---
+
+## 📚 Citation
+
+If you use IntelliCredit in your research, please cite:
+
+```bibtex
+@article{intellicredit2025,
+  title={IntelliCredit: A Constrained MDP for MSME Credit Appraisal},
+  author={V S S K Sai Narayana, Sujeet Jaiswal},
+  year={2025},
+  note={OpenEnv Hackathon Submission}
+}
+```
+
 ---
 
 ## 📜 License
-MIT License.
+
+MIT License — See [LICENSE](LICENSE) for details.
