@@ -43,6 +43,13 @@ TASK_CONFIGS = {
     "task5": {"num_steps": 12, "description": "Expert — Cascading delayed NPAs + unpredictable"},
 }
 
+# ═══════════════════════════════════════════════════════════════
+# GLOBAL SESSION STORE — persists MDP state across stateless HTTP calls.
+# The OpenEnv HTTP framework creates a new environment instance for every
+# /reset and /step call. This dict bridges that gap.
+# ═══════════════════════════════════════════════════════════════
+_SESSION_STORE: Dict[str, Dict[str, Any]] = {}
+
 
 class IntelliCreditEnvironment(Environment):
     """
@@ -58,6 +65,11 @@ class IntelliCreditEnvironment(Environment):
     - Macro-economic shocks mid-episode
     - Hard regulatory constraints that terminate episodes
     - Task-specific grading with weighted scoring formulas
+
+    **HTTP Session Persistence:**
+    The OpenEnv HTTP framework creates a fresh environment instance for every
+    /reset and /step call (fire-and-forget). We maintain state across calls via
+    a module-level _SESSION_STORE dict keyed by episode_id.
     """
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
@@ -74,11 +86,45 @@ class IntelliCreditEnvironment(Environment):
         self._total_steps = TASK_CONFIGS.get(task_id, TASK_CONFIGS["task3"])["num_steps"]
         self._macro_state = [0.2, 0.0, 0.5, 0.5, 0.5]  # stress, shock, gdp, inflation, cycle
 
+    # ── Session state management (HTTP is stateless; we persist manually) ──
+
+    def _save_to_store(self, episode_id: str) -> None:
+        """Save full environment state to the global session store."""
+        _SESSION_STORE[episode_id] = {
+            "task_id": self._task_id,
+            "portfolio": self._portfolio,
+            "applications": self._applications,
+            "current_step": self._current_step,
+            "actions_taken": list(self._actions_taken),
+            "episode_seed": self._episode_seed,
+            "done": self._done,
+            "total_steps": self._total_steps,
+            "macro_state": list(self._macro_state),
+        }
+
+    def _restore_from_store(self, episode_id: str) -> bool:
+        """Restore environment state from the global session store.
+        Returns True if a session was found and restored, False otherwise.
+        """
+        data = _SESSION_STORE.get(episode_id)
+        if data is None:
+            return False
+        self._task_id = data["task_id"]
+        self._portfolio = data["portfolio"]
+        self._applications = data["applications"]
+        self._current_step = data["current_step"]
+        self._actions_taken = data["actions_taken"]
+        self._episode_seed = data["episode_seed"]
+        self._done = data["done"]
+        self._total_steps = data["total_steps"]
+        self._macro_state = data["macro_state"]
+        self._state = State(episode_id=episode_id, step_count=self._current_step)
+        return True
+
     def reset(self, task_id: Optional[str] = None, seed: Optional[int] = None, episode_id: Optional[str] = None) -> IntelliCreditObservation:
         """Reset environment for a new episode.
         GAP 12: Accept seed for reproducibility.
-        FIX: Preserve the episode_id provided by the OpenEnv framework so that
-             subsequent /step calls are correctly routed to this instance.
+        Saves full state to _SESSION_STORE so step() can restore it.
         """
         if task_id:
             self._task_id = task_id
@@ -89,8 +135,6 @@ class IntelliCreditEnvironment(Environment):
         else:
             self._episode_seed = random.randint(1, 100000)
 
-        # CRITICAL: use the caller-provided episode_id (from the HTTP framework)
-        # so session routing works. Fall back to a new UUID only if not given.
         resolved_episode_id = episode_id or str(uuid4())
         self._state = State(episode_id=resolved_episode_id, step_count=0)
         self._portfolio = PortfolioState()
@@ -110,13 +154,26 @@ class IntelliCreditEnvironment(Environment):
         # Initialize macro state
         self._macro_state = [0.2, 0.0, 0.5, 0.5, 0.5]
 
+        # Persist state for subsequent /step calls
+        self._save_to_store(resolved_episode_id)
+
         # Return initial observation
         return self._build_observation(reward=0.0, reward_components={})
 
-    def step(self, action: IntelliCreditAction) -> IntelliCreditObservation:
+    def step(self, action: IntelliCreditAction, episode_id: Optional[str] = None, **kwargs) -> IntelliCreditObservation:
         """Execute one step: agent makes a credit decision on the current application.
         ISSUE 4: Hard rule override — original action used for penalty, effective action (REJECT) for portfolio.
+        HTTP persistence: Restores state from _SESSION_STORE, executes, then saves back.
         """
+        # Restore session state (HTTP framework creates a fresh instance each call)
+        if episode_id and self._portfolio is None:
+            if not self._restore_from_store(episode_id):
+                return self._build_observation(
+                    reward=0.0,
+                    reward_components={"error": "unknown_episode_id"},
+                    force_done=True,
+                )
+
         if self._done or self._portfolio is None:
             return self._build_observation(
                 reward=0.0,
@@ -205,6 +262,13 @@ class IntelliCreditEnvironment(Environment):
         # Check if episode is done
         if terminated or self._current_step >= self._total_steps:
             self._done = True
+
+        # Persist updated state back to store (or clean up if done)
+        if episode_id:
+            if self._done:
+                _SESSION_STORE.pop(episode_id, None)  # clean up finished episode
+            else:
+                self._save_to_store(episode_id)
 
         return self._build_observation(
             reward=reward,
