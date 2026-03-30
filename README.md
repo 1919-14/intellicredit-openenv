@@ -10,103 +10,143 @@ pinned: false
 
 # IntelliCredit-CreditAppraisal-v1
 
-A **Constrained Multi-Objective MDP** for corporate credit underwriting, built as an [OpenEnv](https://github.com/meta-pytorch/openenv) reinforcement learning environment.
+**IntelliCredit** is a Constrained Multi-Objective MDP for corporate credit underwriting, built as an [OpenEnv](https://github.com/meta-pytorch/openenv) reinforcement learning environment for the Meta × Hugging Face OpenEnv Hackathon.
 
-An AI agent acts as a Senior Credit Officer at an Indian MSME lending institution, reviewing 5-12 sequential credit applications per episode. Each decision (APPROVE / CONDITIONAL / REJECT) impacts the portfolio's capital reserves, NPA rate, and regulatory compliance.
+## 📖 Environment Description
 
-## Environment Highlights
+An AI agent acts as a Senior Credit Officer at an Indian MSME lending institution, reviewing 5-12 sequential credit applications per episode. Each decision impacts the bank's portfolio health, capital reserves, and regulatory compliance.
 
-| Feature | Detail |
-|---|---|
-| **Observation Space** | 40-dimensional: 25 application + 10 portfolio + 5 macro |
-| **Action Space** | Discrete(3): APPROVE, CONDITIONAL, REJECT |
-| **Episode Length** | 5-12 steps (varies by task difficulty) |
-| **Reward** | Multi-component: correctness + hard-rule compliance + delayed NPA penalties |
-| **Constraints** | NPA rate < 5%, capital preservation, sector concentration limits |
-| **Delayed Rewards** | Loan approvals at T=2 may default at T=7+ with -2.0 penalty |
-| **Macro Shocks** | Interest rate hikes, sector collapses at ~T=7 |
+**Key Dynamics:**
+- **Delayed Rewards**: Approving a risky loan at $T=2$ may yield short-term interest, but default later at $T=7$, resulting in a severe `-2.0` delayed NPA penalty.
+- **Macro-Economic Shocks**: The environment simulates stress across 8 sectors. A shock can trigger sector-wide defaults midway through an episode.
+- **Strict Compliance**: Hard regulatory rules (e.g., CIBIL defaults, forensic alerts) must trigger an immediate REJECT. Approving these results in severe penalties, while the compliance system automatically blocks the loan from entering the portfolio.
+- **Single Borrower & CRAR Constraints**: The agent must maintain a minimum Capital to Risk-Weighted Assets Ratio (CRAR) > 12.5% and avoid overexposing the bank to a single borrower (> 15% of portfolio).
 
-## Tasks
+---
 
-| Task | Difficulty | Steps | Description |
-|---|---|---|---|
-| `task1` | Easy | 5 | Clean profiles, no macro shocks |
-| `task2` | Medium | 8 | Forensic alerts present |
-| `task3` | Medium-Hard | 12 | Macro shocks + uncertainty |
-| `task4` | Hard | 12 | Regulatory hard-rule violations |
-| `task5` | Expert | 12 | Cascading delayed NPAs |
+## 👁️ Observation Space
 
-## Architecture
+The observation space is a **45-dimensional continuous vector** constructed to provide the agent with both localized application data and global portfolio/macro context.
 
+`observation.application_features` (25-dim)
+Values are normalized to `[-1.0, 1.0]`. Missing data (e.g., unavailable GST filings) is represented by a strict `-1.0` sentinel value.
+- **Financials**: DSCR, Current Ratio, Debt-to-Equity, EBITDA Margin, Collateral Coverage
+- **Behavioral**: Cheque Bounce Frequency, OD Utilisation, CC Volatility
+- **Compliance**: GST Turnover CAGR, GST 2A vs 3B Gap, Related Party Txns, Circular Trading
+- **Governance**: Promoter Litigation Count, Adverse News Sentiment, Succession Risk
+
+`observation.portfolio_state` (10-dim)
+- Capital Deployed, Remaining Capital, NPA Rate, Provisioning Coverage, CRAR, Sector Concentration, Largest Single Exposure, Active Loans count, etc.
+
+`observation.macro_state` (5-dim)
+- Systemic Stress, Stressed Sector Flag, GDP Growth, Inflation Rate, Credit Cycle
+
+`observation.alert_state` (5-dim)
+- Portfolio-wide frequency of recent red flags: [CC Spike, Bounce Surge, GST Miss, Adverse Media, Credit Degradation].
+
+*LLM Agents also receive an `observation.application_summary.text_summary` containing a human-readable prompt with dynamically hidden values where data is missing.*
+
+---
+
+## 🕹️ Action Space
+
+The action space is **Discrete(3)**. At each timestep, the agent must evaluate the current application and make a credit decision.
+
+| Action | Decision | Description |
+|:---:|:---|:---|
+| **`0`** | **APPROVE** | Fully fund the requested loan amount at standard interest rates. Risks delayed NPA if the applicant defaults. |
+| **`1`** | **CONDITIONAL** | Approve the loan but mandate strict terms (e.g., higher interest, extra collateral). Reduces default probability but yields lower base reward. |
+| **`2`** | **REJECT** | Decline the loan. Zero risk of default, but consumes 1 timestep without generating yield. Required for hard-rule compliance. |
+
+---
+
+## ⚙️ Setup Instructions
+
+### 1. Prerequisites
+- Python 3.10+
+- `uv` (recommended) or `pip`
+
+### 2. Installation
+Clone the repository and install the dependencies:
+
+```bash
+git clone https://github.com/1919-14/intellicredit-openenv.git
+cd intellicredit-openenv
+
+# Using uv (Recommended)
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install -r requirements.txt
+
+# Or using pip
+python -m venv venv
+source venv/bin/activate   # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
-ScalarXOpenEnv/
-├── server/
-│   ├── app.py                    # FastAPI server (OpenEnv spec)
-│   ├── intellicredit_env.py      # Core environment (reset/step/state)
-│   ├── dataset.py                # Anchor-based synthetic data generator
-│   └── reward.py                 # Reward computation + portfolio tracking
-├── models.py                     # Pydantic Action/Observation types
-├── inference.py                  # LLM baseline agent (OpenAI client)
-├── openenv.yaml                  # OpenEnv specification
-├── Dockerfile                    # HuggingFace Space deployment
-├── requirements.txt              # Python dependencies
-└── README.md
+
+### 3. Running the Server Locally
+To start the FastAPI / OpenEnv HTTP Interface:
+
+```bash
+python server/app.py --port 7860
 ```
+- Navigate to `http://localhost:7860/docs` to test `/reset` and `/step` via Swagger UI.
 
-## Key Design: Anchor-Based Data Generation
+---
 
-Applications are generated using a **Tier × Sector × Size** anchoring system:
+## 🚀 Usage
 
-1. **Tier (A/B/C/D)**: Hidden credit quality that determines all feature distributions
-2. **Sector (8 sectors)**: Industry-specific margins, collateral, macro sensitivity
-3. **Size (Micro/Small/Medium/Large)**: Revenue and loan amount scaling
-
-Features are generated in dependency clusters to ensure **semantic coherence** — a company with high DSCR cannot simultaneously have terrible CIBIL and zero net worth. This is critical because **LLM evaluators read the data as text** and would detect incoherent scenarios.
-
-## Hard Rules (Mandatory Rejections)
-
-| Rule | Condition |
-|---|---|
-| HR-01 | DSCR < 1.0 |
-| HR-02 | Director disqualified (DIN score < 0.1) |
-| HR-03 | RED forensic alert present |
-| HR-04 | Cheque bounce rate > 25% |
-| HR-05 | GST filing compliance < 40% |
-| HR-06 | Adverse media score > 0.80 |
-
-## Quick Start
+### Python Native (Gymnasium-style)
+You can directly interact with the Python class without HTTP overhead:
 
 ```python
 from server.intellicredit_env import IntelliCreditEnvironment
 from models import IntelliCreditAction
 
-env = IntelliCreditEnvironment(task_id="task1")
-obs = env.reset()
+# Initialize environment
+env = IntelliCreditEnvironment(task_id="task3")
+obs = env.reset(seed=42)
+
+print(obs.application_summary.text_summary)
 
 while not obs.done:
-    action = IntelliCreditAction(decision=1)  # CONDITIONAL
+    # Action: 0=APPROVE, 1=CONDITIONAL, 2=REJECT
+    action = IntelliCreditAction(decision=1) 
     obs = env.step(action)
-    print(f"Step {obs.timestep}: reward={obs.reward:.2f}")
+    print(f"Step {obs.timestep} | Reward: {obs.reward:.2f}")
 
-print(f"Final Score: {obs.episode_score:.4f}")
+print(f"Episode Score: {obs.episode_score:.2f} / 1.0")
 ```
 
-## LLM Baseline
+### LLM Baseline Script
+We have included a baseline evaluation script that automatically tests open-source LLMs (default: `meta-llama/Llama-3.3-70B-Instruct`) against the environment tasks.
 
 ```bash
-export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="meta-llama/Llama-3.3-70B-Instruct"
-export HF_TOKEN="your-token-here"
+# Set your Hugging Face API Token (Free Serverless Inference API is supported)
+export HF_TOKEN="your-hf-token-here"
+
+# Run the inference evaluator
 python inference.py
 ```
 
-## Scoring (0.0 → 1.0)
+---
 
-- **50%** — Decision accuracy (matching optimal action)
-- **25%** — Hard rule compliance (no approved hard-reject cases)
-- **15%** — NPA management (low portfolio default rate)
-- **10%** — Capital utilization (efficient deployment)
+## 🏆 Tasks & Scoring
+
+The environment contains 5 progressive tasks. The evaluator grades decisions using a multi-objective formula:
+
+- **50%** — Accuracy (matching optimal algorithm decisions)
+- **25%** — Hard Rule Compliance (0% if any mandatory reject is approved)
+- **15%** — NPA Management (portfolio default rate)
+- **10%** — Capital Utilization
+
+| Task | Steps | Description |
+|---|:---:|---|
+| `task1` | 5 | Easy — Clean profiles, no macro shocks |
+| `task2` | 8 | Medium — Forensic alerts present |
+| `task3` | 12 | Hard — Macro shocks and missing data |
+| `task4` | 12 | Expert — Regulatory hard-rule violations |
+| `task5` | 12 | Master — Full constraints (CRAR, Sector limits) |
 
 ## License
-
 MIT
