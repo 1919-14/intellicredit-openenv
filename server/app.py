@@ -24,6 +24,42 @@ except ImportError:
     from models import IntelliCreditAction, IntelliCreditObservation
     from server.intellicredit_env import IntelliCreditEnvironment, TASK_CONFIGS
 
+_DESCRIPTION = """
+## IntelliCredit Credit Appraisal Environment
+
+**MSME Credit Decision RL Environment** — Meta × Hugging Face OpenEnv Hackathon.
+
+---
+
+### ⚠️ IMPORTANT: Session Workflow
+
+Every HTTP call must carry the **same `episode_id`** to maintain session state:
+
+**Step 1 — Reset:**
+```json
+POST /reset
+{ "episode_id": "my-session-1", "seed": 42 }
+```
+
+**Step 2 — Step (repeat up to 12 times):**
+```json
+POST /step
+{ "episode_id": "my-session-1", "action": { "decision": 0 }, "timeout_s": 30 }
+```
+
+> `decision` values: **0 = APPROVE**, **1 = CONDITIONAL**, **2 = REJECT**
+
+---
+
+### Tasks
+| Task | Description |
+|------|-------------|
+| task1 | Easy — Clean profiles |
+| task2 | Medium — Mixed risk |
+| task3 | Hard — Missing data |
+| task4 | Expert — Forensic alerts |
+| task5 | Master — Full constraints |
+"""
 
 # Create the app with web interface and README integration
 app = create_app(
@@ -33,6 +69,12 @@ app = create_app(
     env_name="intellicredit_credit_appraisal",
     max_concurrent_envs=4,
 )
+
+# Inject rich description into FastAPI app metadata
+app.title = "IntelliCredit-CreditAppraisal-v1"
+app.description = _DESCRIPTION
+app.version = "1.0.0"
+
 
 
 # GAP 15: /info endpoint returning environment metadata
