@@ -4,13 +4,20 @@ Typed Pydantic models for the OpenEnv spec: Observation, Action, Reward.
 """
 
 from typing import Dict, List, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class IntelliCreditAction(BaseModel):
-    """Agent action for credit decision."""
+    """Agent action for credit decision.
+
+    Accepts all of the following equivalent formats:
+        {"decision": 0}             ← canonical format
+        {"value": 0}                ← Swagger UI default auto-fill
+        {"action": 0}               ← alternative convention
+        0                           ← raw integer (JSON primitive)
+    """
     decision: int = Field(
-        ...,
+        default=0,           # default so missing-field doesn't fail before validator runs
         ge=0, le=2,
         description="Credit decision: 0=APPROVE, 1=CONDITIONAL_APPROVE, 2=REJECT"
     )
@@ -19,11 +26,39 @@ class IntelliCreditAction(BaseModel):
         description="Optional reasoning for the decision (used by LLM agents)"
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _normalise_action(cls, data: Any) -> Any:
+        """Accept 'value', 'action', or any bare int as fallback for 'decision'."""
+        # Raw integer passed directly
+        if isinstance(data, int):
+            return {"decision": max(0, min(2, data))}
+
+        if isinstance(data, dict):
+            # Already has 'decision' — nothing to do
+            if "decision" in data:
+                return data
+            # Swagger default: {"value": 1}
+            if "value" in data:
+                return {**data, "decision": int(data["value"])}
+            # Alternative: {"action": 1}
+            if "action" in data:
+                return {**data, "decision": int(data["action"])}
+            # Last resort: pick first integer value in the dict
+            for v in data.values():
+                if isinstance(v, (int, float)):
+                    return {**data, "decision": max(0, min(2, int(v)))}
+
+        return data
+
     model_config = {
         "json_schema_extra": {
-            "example": {
-                "decision": 0
-            }
+            "examples": [
+                {"decision": 0},                   # canonical (APPROVE)
+                {"decision": 1},                   # canonical (CONDITIONAL)
+                {"decision": 2},                   # canonical (REJECT)
+                {"value": 0},                      # Swagger auto-fill fallback
+            ]
         }
     }
 
