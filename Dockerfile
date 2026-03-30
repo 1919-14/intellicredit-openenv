@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir --upgrade -r requirements.txt
 COPY --chown=user . /app
 
 # Set Python path so server module imports work
-ENV PYTHONPATH="/app:$PYTHONPATH"
+ENV PYTHONPATH="/app"
 
 # Expose the HuggingFace required port
 EXPOSE 7860

@@ -76,6 +76,17 @@ app.description = _DESCRIPTION
 app.version = "1.0.0"
 
 
+from fastapi.responses import RedirectResponse
+
+@app.get("/")
+def read_root():
+    """Redirect root to Swagger UI for Hugging Face Spaces."""
+    return RedirectResponse(url="/docs")
+
+@app.get("/health")
+def health_check():
+    """Health check for Docker/Kubernetes."""
+    return {"status": "healthy"}
 
 # GAP 15: /info endpoint returning environment metadata
 @app.get("/info")
