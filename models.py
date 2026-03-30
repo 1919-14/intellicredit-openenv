@@ -19,6 +19,14 @@ class IntelliCreditAction(BaseModel):
         description="Optional reasoning for the decision (used by LLM agents)"
     )
 
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "decision": 0
+            }
+        }
+    }
+
 
 class ApplicationSummary(BaseModel):
     """Human-readable summary of the current credit application."""
