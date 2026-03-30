@@ -74,9 +74,11 @@ class IntelliCreditEnvironment(Environment):
         self._total_steps = TASK_CONFIGS.get(task_id, TASK_CONFIGS["task3"])["num_steps"]
         self._macro_state = [0.2, 0.0, 0.5, 0.5, 0.5]  # stress, shock, gdp, inflation, cycle
 
-    def reset(self, task_id: Optional[str] = None, seed: Optional[int] = None) -> IntelliCreditObservation:
+    def reset(self, task_id: Optional[str] = None, seed: Optional[int] = None, episode_id: Optional[str] = None) -> IntelliCreditObservation:
         """Reset environment for a new episode.
         GAP 12: Accept seed for reproducibility.
+        FIX: Preserve the episode_id provided by the OpenEnv framework so that
+             subsequent /step calls are correctly routed to this instance.
         """
         if task_id:
             self._task_id = task_id
@@ -87,7 +89,10 @@ class IntelliCreditEnvironment(Environment):
         else:
             self._episode_seed = random.randint(1, 100000)
 
-        self._state = State(episode_id=str(uuid4()), step_count=0)
+        # CRITICAL: use the caller-provided episode_id (from the HTTP framework)
+        # so session routing works. Fall back to a new UUID only if not given.
+        resolved_episode_id = episode_id or str(uuid4())
+        self._state = State(episode_id=resolved_episode_id, step_count=0)
         self._portfolio = PortfolioState()
         self._current_step = 0
         self._actions_taken = []
