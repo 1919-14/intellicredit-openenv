@@ -1,7 +1,7 @@
 # IntelliCredit-CreditAppraisal-v1 — HuggingFace Spaces Dockerfile
 # Docs: https://huggingface.co/docs/hub/spaces-sdks-docker
 
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 # HuggingFace Spaces requires a non-root user with UID 1000
 RUN useradd -m -u 1000 user
