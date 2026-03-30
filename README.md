@@ -109,6 +109,7 @@ To prove solvability, we trained an SB3 `PPO` baseline agent for 500,000 timeste
 - **At 200k Steps**: The agent begins recognizing the `-1.0` Sentinel Data indicators for missing documents and learns to `REJECT` applications with `Director Disqualified` flags. *Average Reward = +1.45*
 - **At 500k Steps**: The agent fully balances risk vs yield. It correctly utilizes `CONDITIONAL` approvals for medium-risk sectors anticipating the $T=7$ macro-shocks.
 - **Final Episode Score**: `~3.57` (Outperforming a randomized baseline by 400%).
+![39c41f39-b348-44b5-ae3a-31edf4cfa866](https://github.com/user-attachments/assets/0078b720-3e3c-4969-836f-9c1cf130f5df)
 
 ---
 
