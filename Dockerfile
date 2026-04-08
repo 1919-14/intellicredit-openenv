@@ -23,9 +23,9 @@ ENV PYTHONPATH="/app"
 # Expose the HuggingFace required port
 EXPOSE 7860
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:7860/health || exit 1
+# Health check — uses Python (curl not available in python:3.11-slim)
+HEALTHCHECK --interval=15s --timeout=10s --start-period=20s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:7860/health', timeout=8)" || exit 1
 
 # Run the FastAPI server on port 7860 (HF Spaces requirement)
 CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]

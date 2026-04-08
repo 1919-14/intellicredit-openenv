@@ -39,10 +39,7 @@ if not HF_TOKEN:
     print("ERROR: HF_TOKEN environment variable is required", file=sys.stderr)
     sys.exit(1)
 
-ENV_URL = os.getenv(
-    "ENV_URL",
-    "https://vssksn-intellicredit-openenv.hf.space"
-)
+ENV_URL = os.getenv("ENV_URL", "http://localhost:7860")
 BENCHMARK    = "intellicredit_credit_appraisal"
 SEED         = 42
 TEMPERATURE  = 0.2
