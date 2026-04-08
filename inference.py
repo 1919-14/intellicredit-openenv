@@ -61,9 +61,10 @@ class EnvHTTPClient:
 
     def health(self) -> bool:
         try:
-            r = self.session.get(f"{self.base}/health", timeout=10)
+            r = self.session.get(f"{self.base}/health", timeout=15)
             return r.status_code == 200
-        except Exception:
+        except Exception as e:
+            print(f"  Health check error: {e}", file=sys.stderr)
             return False
 
     def reset(self, task_id: str, seed: int = 42, episode_id: str | None = None) -> dict:
@@ -71,7 +72,7 @@ class EnvHTTPClient:
         body: dict = {"seed": seed, "task_id": task_id}
         if episode_id:
             body["episode_id"] = episode_id
-        r = self.session.post(f"{self.base}/reset", json=body, timeout=30)
+        r = self.session.post(f"{self.base}/reset", json=body, timeout=60)
         r.raise_for_status()
         return r.json()
 
@@ -80,7 +81,7 @@ class EnvHTTPClient:
         body: dict = {"action": action}
         if episode_id:
             body["episode_id"] = episode_id
-        r = self.session.post(f"{self.base}/step", json=body, timeout=30)
+        r = self.session.post(f"{self.base}/step", json=body, timeout=60)
         r.raise_for_status()
         return r.json()
 
@@ -310,16 +311,17 @@ def main():
 
     # Wait for environment to be ready
     print("\n  Waiting for environment...", file=sys.stderr)
-    for i in range(30):
+    ready = False
+    for i in range(20):
         if env.health():
             print("  Environment ready ✓", file=sys.stderr)
+            ready = True
             break
-        print(f"  Attempt {i+1}/30...", file=sys.stderr)
-        time.sleep(2)
-    else:
-        print("  ERROR: Environment not reachable after 60s", file=sys.stderr)
-        print(f"  Tried: {ENV_URL}/health", file=sys.stderr)
-        sys.exit(1)
+        print(f"  Attempt {i+1}/20...", file=sys.stderr)
+        time.sleep(3)
+
+    if not ready:
+        raise RuntimeError(f"Environment not reachable after 60s. Tried: {ENV_URL}/health")
 
     results = []
     tasks_to_run = ["task1", "task2", "task3"]  # Minimum 3 required
