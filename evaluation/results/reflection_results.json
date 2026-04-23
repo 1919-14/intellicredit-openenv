@@ -1,0 +1,166 @@
+{
+  "mode": "reflection",
+  "model_name": "RuleBasedAgent + MemoryBank (no weight updates)",
+  "total_episodes": 15,
+  "score_trajectory": [
+    0.35,
+    0.3542,
+    0.4119,
+    0.2363,
+    0.2746,
+    0.375,
+    0.3428,
+    0.2378,
+    0.2795,
+    0.2561,
+    0.3333,
+    0.3274,
+    0.2539,
+    0.3115,
+    0.159
+  ],
+  "phase_averages": {
+    "episodes_1_10": 0.3118,
+    "episodes_11_20": 0.277,
+    "episodes_21_30": 0.0
+  },
+  "improvement_delta": -0.0652,
+  "improving": false,
+  "memory_stats": {
+    "total_lessons": 20,
+    "total_episodes": 15,
+    "score_trend": [
+      0.375,
+      0.3428,
+      0.2378,
+      0.2795,
+      0.2561,
+      0.3333,
+      0.3274,
+      0.2539,
+      0.3115,
+      0.159
+    ],
+    "severity_counts": {
+      "critical": 9,
+      "high": 11,
+      "medium": 0,
+      "low": 0
+    },
+    "type_counts": {
+      "delayed_default": 5,
+      "portfolio_overexposure": 4,
+      "hard_rule_violation": 6,
+      "audit_failure": 2,
+      "early_termination": 3
+    }
+  },
+  "top_lessons": "\u2550\u2550\u2550 PAST LESSONS LEARNED \u2550\u2550\u2550\n(From previous episodes \u2014 apply these to avoid repeating mistakes)\n\n  1. \ud83d\udd34 SURVIVAL: Episode terminated early (CRAR 2.6% below 12.5% minimum). Preserve capital. (seen 5x)\n  2. \ud83d\udd34 SURVIVAL: Episode terminated early (REGULATORY_SHUTDOWN). Preserve capital. (seen 4x)\n  3. \ud83d\udd34 SURVIVAL: Episode terminated early (NPA rate 7.1% exceeds 5% limit). Preserve capital. (seen 6x)\n  4. \ud83d\udd34 RULE: When HR-01: DSCR below 1.0, always REJECT. Cost: -2.0 each. (seen 6x)\n  5. \ud83d\udd34 RULE: When HR-03: 1 RED forensic alert(s), always REJECT. Cost: -2.0 each.\n  6. \ud83d\udd34 RULE: When HR-06: Severe adverse media, always REJECT. Cost: -2.0 each.\n  7. \ud83d\udd34 RULE: When HR-04: Cheque bounce rate > 25%, always REJECT. Cost: -2.0 each.\n  8. \ud83d\udd34 RULE: When HR-03: 4 RED forensic alert(s), always REJECT. Cost: -2.0 each.\n  9. \ud83d\udd34 RULE: When HR-02: Director disqualification, always REJECT. Cost: -2.0 each.\n  10. \ud83d\udfe0 PORTFOLIO: NPA rate reached 33.3%. Reject more marginal loans. (seen 4x)\n",
+  "episode_details": [
+    {
+      "episode": 1,
+      "task_id": "task1",
+      "score": 0.35,
+      "lessons_stored": 6,
+      "lessons_extracted": 7
+    },
+    {
+      "episode": 2,
+      "task_id": "task2",
+      "score": 0.3542,
+      "lessons_stored": 8,
+      "lessons_extracted": 3
+    },
+    {
+      "episode": 3,
+      "task_id": "task3",
+      "score": 0.4119,
+      "lessons_stored": 9,
+      "lessons_extracted": 2
+    },
+    {
+      "episode": 4,
+      "task_id": "task4",
+      "score": 0.2363,
+      "lessons_stored": 10,
+      "lessons_extracted": 4
+    },
+    {
+      "episode": 5,
+      "task_id": "task5",
+      "score": 0.2746,
+      "lessons_stored": 15,
+      "lessons_extracted": 12
+    },
+    {
+      "episode": 6,
+      "task_id": "task1",
+      "score": 0.375,
+      "lessons_stored": 15,
+      "lessons_extracted": 2
+    },
+    {
+      "episode": 7,
+      "task_id": "task2",
+      "score": 0.3428,
+      "lessons_stored": 17,
+      "lessons_extracted": 6
+    },
+    {
+      "episode": 8,
+      "task_id": "task3",
+      "score": 0.2378,
+      "lessons_stored": 17,
+      "lessons_extracted": 3
+    },
+    {
+      "episode": 9,
+      "task_id": "task4",
+      "score": 0.2795,
+      "lessons_stored": 18,
+      "lessons_extracted": 6
+    },
+    {
+      "episode": 10,
+      "task_id": "task5",
+      "score": 0.2561,
+      "lessons_stored": 18,
+      "lessons_extracted": 5
+    },
+    {
+      "episode": 11,
+      "task_id": "task1",
+      "score": 0.3333,
+      "lessons_stored": 20,
+      "lessons_extracted": 4
+    },
+    {
+      "episode": 12,
+      "task_id": "task2",
+      "score": 0.3274,
+      "lessons_stored": 20,
+      "lessons_extracted": 6
+    },
+    {
+      "episode": 13,
+      "task_id": "task3",
+      "score": 0.2539,
+      "lessons_stored": 20,
+      "lessons_extracted": 5
+    },
+    {
+      "episode": 14,
+      "task_id": "task4",
+      "score": 0.3115,
+      "lessons_stored": 20,
+      "lessons_extracted": 4
+    },
+    {
+      "episode": 15,
+      "task_id": "task5",
+      "score": 0.159,
+      "lessons_stored": 20,
+      "lessons_extracted": 5
+    }
+  ]
+}

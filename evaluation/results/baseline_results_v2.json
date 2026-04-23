@@ -1,0 +1,104 @@
+{
+  "generated_at": "2026-04-23T20:38:15.923636",
+  "base_model": {
+    "model": "RuleBasedAgent (optimal rule follower)",
+    "total_episodes": 25,
+    "avg_score": 0.3037,
+    "avg_reward": 18.2906,
+    "avg_accuracy": 0.7792,
+    "hard_rule_violation_rate": 0.2074,
+    "avg_npa_rate": 0.1343,
+    "avg_crar": 10.8741,
+    "audit_pass_rate": 0.0526,
+    "early_termination_rate": 1.0,
+    "per_task": {
+      "task1": {
+        "episodes": 5,
+        "avg_score": 0.3893,
+        "avg_reward": 8.7568,
+        "avg_accuracy": 0.7786,
+        "avg_npa_rate": 0.0476,
+        "terminated_early": 5
+      },
+      "task2": {
+        "episodes": 5,
+        "avg_score": 0.3251,
+        "avg_reward": 14.2792,
+        "avg_accuracy": 0.6664,
+        "avg_npa_rate": 0.0889,
+        "terminated_early": 5
+      },
+      "task3": {
+        "episodes": 5,
+        "avg_score": 0.2884,
+        "avg_reward": -0.4298,
+        "avg_accuracy": 0.8148,
+        "avg_npa_rate": 0.2019,
+        "terminated_early": 5
+      },
+      "task4": {
+        "episodes": 5,
+        "avg_score": 0.2646,
+        "avg_reward": 35.526,
+        "avg_accuracy": 0.8586,
+        "avg_npa_rate": 0.2667,
+        "terminated_early": 5
+      },
+      "task5": {
+        "episodes": 5,
+        "avg_score": 0.2509,
+        "avg_reward": 33.321,
+        "avg_accuracy": 0.7778,
+        "avg_npa_rate": 0.0667,
+        "terminated_early": 5
+      }
+    }
+  },
+  "grpo_model": {
+    "model": "intellicredit-grpo-llama3 (pending training)",
+    "total_episodes": "N/A",
+    "avg_score": "N/A (run GRPO training first)",
+    "avg_reward": "N/A",
+    "avg_accuracy": "N/A",
+    "hard_rule_violation_rate": "N/A",
+    "avg_npa_rate": "N/A",
+    "avg_crar": "N/A",
+    "audit_pass_rate": "N/A",
+    "early_termination_rate": "N/A",
+    "per_task": {}
+  },
+  "reflection_model": {
+    "model": "RuleBasedAgent + MemoryBank (no weight updates)",
+    "episode_phases": {
+      "episodes_1_10": 0.3118,
+      "episodes_11_20": 0.277,
+      "episodes_21_30": 0.0
+    },
+    "improvement_delta": -0.0652,
+    "improving": false,
+    "score_trajectory": [
+      0.35,
+      0.3542,
+      0.4119,
+      0.2363,
+      0.2746,
+      0.375,
+      0.3428,
+      0.2378,
+      0.2795,
+      0.2561,
+      0.3333,
+      0.3274,
+      0.2539,
+      0.3115,
+      0.159
+    ],
+    "top_lessons": "\u2550\u2550\u2550 PAST LESSONS LEARNED \u2550\u2550\u2550\n(From previous episodes \u2014 apply these to avoid repeating mistakes)\n\n  1. \ud83d\udd34 SURVIVAL: Episode terminated early (CRAR 2.6% below 12.5% minimum). Preserve capital. (seen 5x)\n  2. \ud83d\udd34 SURVIVAL: Episode terminated early (REGULATORY_SHUTDOWN). Preserve capital. (seen 4x)\n  3. \ud83d\udd34 SURVIVAL: Episode terminated early (NPA rate 7.1% exceeds 5% limit). Preserve capital. (seen 6x)\n  4. \ud83d\udd34 RULE: When HR-01: DSCR below 1.0, always REJECT. Cost: -2.0 each. (seen 6x)\n  5. \ud83d\udd34 RULE: When HR-03: 1 RED forensic alert(s), always REJECT. Cost: -2.0 each.\n  6. \ud83d\udd34 RULE: When HR-06: Severe adverse media, always REJECT. Cost: -2.0 each.\n  7. \ud83d\udd34 RULE: When HR-04: Cheque bounce rate > 25%, always REJECT. Cost: -2.0 each.\n  8. \ud83d\udd34 RULE: When HR-03: 4 RED forensic alert(s), always REJECT. Cost: -2.0 each.\n  9. \ud83d\udd34 RULE: When HR-02: Director disqualification, always REJECT. Cost: -2.0 each.\n  10. \ud83d\udfe0 PORTFOLIO: NPA rate reached 33.3%. Reject more marginal loans. (seen 4x)\n"
+  },
+  "improvement_deltas": {
+    "score_delta": "N/A",
+    "hr_delta": "N/A",
+    "accuracy_delta": "N/A",
+    "npa_delta": "N/A"
+  }
+}

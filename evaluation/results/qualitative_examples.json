@@ -1,0 +1,112 @@
+[
+  {
+    "id": 1,
+    "title": "Hard Rule Learning: DSCR < 1.0",
+    "scenario": "Bharat Engineering Pvt. Ltd. — DSCR = 0.85x, otherwise healthy",
+    "hard_rule": "HR-01: DSCR < 1.0 (Mandatory Reject)",
+    "base_model": {
+      "completion": "Based on strong revenue and good CIBIL score, APPROVE the loan. The company shows good growth.",
+      "decision": "APPROVE",
+      "action": 0,
+      "reasoning": "Focuses only on surface metrics, misses DSCR rule",
+      "reward": -2.0
+    },
+    "fine_tuned": {
+      "completion": "check_compliance_status('Bharat Engineering Pvt. Ltd.')\n[Tool result: HR-01 triggered — DSCR = 0.85 < 1.0]\nsubmit_decision('REJECT', 'Mandatory reject per HR-01: DSCR 0.85x below RBI minimum of 1.0x. Cannot approve regardless of other metrics.')",
+      "decision": "REJECT",
+      "action": 2,
+      "reasoning": "Explicitly calls compliance tool, cites HR-01 with specific DSCR value",
+      "reward": 1.5
+    },
+    "reward_delta": "+3.5",
+    "lesson_type": "hard_rule_violation"
+  },
+  {
+    "id": 2,
+    "title": "Forensic Alert Detection: Circular Trading",
+    "scenario": "TechMed Solutions — good financials but RED circular trading alert",
+    "hard_rule": "HR-03: RED forensic alert (Mandatory Reject)",
+    "base_model": {
+      "completion": "Revenue is strong at ₹45Cr, CIBIL 780. APPROVE with standard conditions.",
+      "decision": "APPROVE",
+      "action": 0,
+      "reasoning": "Ignores forensic alert section, approves on financial metrics alone",
+      "reward": -2.0
+    },
+    "fine_tuned": {
+      "completion": "check_compliance_status('TechMed Solutions')\n[Results: 🔴 [RED] CIRCULAR_TRADING: Shell entity transactions detected]\nsubmit_decision('REJECT', 'RED alert — circular trading pattern indicates revenue inflation. HR-03 triggered. Cannot approve.')",
+      "decision": "REJECT",
+      "action": 2,
+      "reasoning": "Uses tool to confirm alert, cites specific alert type and HR-03",
+      "reward": 1.5
+    },
+    "reward_delta": "+3.5",
+    "lesson_type": "hard_rule_violation"
+  },
+  {
+    "id": 3,
+    "title": "Portfolio Awareness: High NPA Environment",
+    "scenario": "Good loan application, but portfolio NPA already at 8.5%",
+    "hard_rule": null,
+    "base_model": {
+      "completion": "Financial metrics look solid. APPROVE this loan for the yield.",
+      "decision": "APPROVE",
+      "action": 0,
+      "reasoning": "Evaluates loan in isolation, ignores portfolio NPA state",
+      "reward": -0.5
+    },
+    "fine_tuned": {
+      "completion": "get_market_intelligence('Manufacturing')\n[Portfolio NPA: 8.5% — HIGH STRESS]\nsubmit_decision('REJECT', 'NPA rate at 8.5% — portfolio cannot absorb further risk. Rejecting to protect CRAR buffer despite acceptable loan metrics.')",
+      "decision": "REJECT",
+      "action": 2,
+      "reasoning": "Checks market intelligence, makes decision based on portfolio state",
+      "reward": 0.8
+    },
+    "reward_delta": "+1.3",
+    "lesson_type": "portfolio_overexposure"
+  },
+  {
+    "id": 4,
+    "title": "Borrower Manipulation: 3rd-Attempt Repeat Applicant",
+    "scenario": "Same borrower, 3rd attempt — improved surface CIBIL but unchanged underlying PD",
+    "hard_rule": null,
+    "base_model": {
+      "completion": "CIBIL has improved since last application. The borrower shows improvement. APPROVE.",
+      "decision": "APPROVE",
+      "action": 0,
+      "reasoning": "Fooled by improved surface metrics, ignores repeat-applicant warning",
+      "reward": -1.5
+    },
+    "fine_tuned": {
+      "completion": "get_financial_report('Indira Textiles Ltd')\n[3-year trend: flat revenue, margin declining]\nsubmit_decision('REJECT', 'REPEAT APPLICANT, attempt #3. Underlying financials unchanged despite improved CIBIL. True PD estimated >45%. Rejection maintained.')",
+      "decision": "REJECT",
+      "action": 2,
+      "reasoning": "Investigates financial trends, explicitly flags repeat-applicant risk",
+      "reward": 1.0
+    },
+    "reward_delta": "+2.5",
+    "lesson_type": "borrower_manipulation"
+  },
+  {
+    "id": 5,
+    "title": "Macro Shock Adaptation: Stressed Sector",
+    "scenario": "Decent loan in Real Estate sector during active macro shock",
+    "hard_rule": null,
+    "base_model": {
+      "completion": "Real estate company with DSCR 1.2x. APPROVE — good fundamentals.",
+      "decision": "APPROVE",
+      "action": 0,
+      "reasoning": "Does not check macro environment or sector stress",
+      "reward": -0.8
+    },
+    "fine_tuned": {
+      "completion": "get_market_intelligence('Infrastructure')\n[Macro stress: 0.72 HIGH STRESS | Sector NPA peer: 14%]\nsubmit_decision('CONDITIONAL', 'Macro shock active, sector stress HIGH. Approving conditionally with 50% disbursement and quarterly review covenant. Monitoring NPA exposure.')",
+      "decision": "CONDITIONAL",
+      "action": 1,
+      "reasoning": "Calls market intelligence, adapts decision to macro state with conditions",
+      "reward": 0.8
+    },
+    "reward_delta": "+1.6",
+    "lesson_type": "macro_shock_loss"
+  }
+]
