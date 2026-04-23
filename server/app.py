@@ -54,21 +54,55 @@ POST /step
 { "episode_id": "my-session-1", "action": { "decision": 0 }, "timeout_s": 30 }
 ```
 
-> **v2**: Regulator audits auto-fire at steps 10, 20, 30, 40, 50.
-> Rejected borrowers reapply after a 3–5 step cooling period with improved surface profiles.
+> **v2**: Regulator audits auto-fire at steps 10, 20, 30, 40, 50 (±1 jitter).
+> Rejected borrowers re-apply after a 3–5 step cooling period with improved surface profiles but unchanged hidden PD.
 
 > `decision` values: **0 = APPROVE**, **1 = CONDITIONAL**, **2 = REJECT**
 
 ---
 
-### Tasks
-| Task | Description |
-|------|-------------|
-| task1 | Easy — Clean profiles |
-| task2 | Medium — Mixed risk |
-| task3 | Hard — Missing data |
-| task4 | Expert — Forensic alerts |
-| task5 | Master — Full constraints |
+### Tasks (v2 — all 50 steps)
+| Task | Steps | Description |
+|------|-------|-------------|
+| task1 | 50 | Easy — Clean profiles, macro shock at step ~22 |
+| task2 | 50 | Medium — Forensic alerts present, shock at step ~22 |
+| task3 | 50 | Hard — Macro shocks + missing data + repeat applicants |
+| task4 | 50 | Expert — Hard-rule violations, tight CRAR windows |
+| task5 | 50 | Master — Full constraints, cascading NPAs, 5 regulatory audits |
+
+---
+
+### v2 Highlights
+
+**Observation Space: 55D**
+| Dims | Sub-space | Description |
+|------|-----------|-------------|
+| 0–24 | Application features | 25 financial/forensic ratios per borrower |
+| 25–34 | Portfolio state | NPA rate, CRAR, sector concentration, capital |
+| 35–39 | Macro state | Stress index, shock flag, GDP, inflation, credit cycle |
+| 40–44 | Alert state | Active forensic alert categories |
+| 45–54 | Memory features (NEW) | Rolling NPA, approval rate, macro trend, audit risk… |
+
+**6 Hard Rules (auto-REJECT + penalty)**
+- HR-01: DSCR < 1.0x
+- HR-02: CIBIL < 650
+- HR-03: Active RED forensic alert
+- HR-04: Sector under active macro shock
+- HR-05: GST filing gap > 3 months
+- HR-06: Adverse media score > 0.8
+
+**Multi-Agent System**
+- 🏦 **Credit Officer** (your agent) — approves/rejects applications
+- 📋 **BorrowerAgent** — rejected borrowers reapply with improved surface metrics
+- ⚖️ **RegulatorAgent** — audits portfolio at steps 10/20/30/40/50, applies penalties/shutdown
+
+**Reward Components**
+- Correctness bonus/penalty vs. optimal decision
+- Hard rule penalty: −2.0 (APPROVE) / −1.0 (CONDITIONAL) on HR violation
+- Delayed NPA penalty: fires 5–15 steps after approval
+- Audit bonus (+2.0 clean) / penalty (−8 NPA, −15 CRAR, −8 sector)
+- Survival bonus every 10 steps (if CRAR > 12.5%)
+- Reasoning quality bonus (R1-style format reward)
 """
 
 # Create the app with web interface and README integration
