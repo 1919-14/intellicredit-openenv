@@ -1,6 +1,63 @@
-venv/
+# ─── Python bytecode ──────────────────────────────────────────
 __pycache__/
-.git/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ─── Virtual environments ──────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ─── Secrets & local config ────────────────────────────────────
 .env
+.env.*
+*.key
+secrets.json
+
+# ─── Dev / VCS / IDE ───────────────────────────────────────────
+.git/
+.github/
+.gitignore
 .pytest_cache/
-*.pyc
+.mypy_cache/
+.ruff_cache/
+.coverage
+*.swp
+*.swo
+.DS_Store
+.vscode/
+.idea/
+
+# ─── Documentation (not needed inside Docker image) ────────────
+project_knowledge.md
+
+# ══════════════════════════════════════════════════════════════
+# TRAINING — not needed in the env server Docker image
+# (Training runs on a separate GPU machine, not in HF Spaces)
+# ══════════════════════════════════════════════════════════════
+training/grpo_dataset.jsonl
+training/checkpoints/
+training/merged_model/
+training/logs/
+training/*.safetensors
+training/*.bin
+training/*.png
+training/*.zip
+
+# ══════════════════════════════════════════════════════════════
+# EVALUATION — generated artifacts, not needed in Docker image
+# ══════════════════════════════════════════════════════════════
+evaluation/results/
+evaluation/charts/
+
+# ══════════════════════════════════════════════════════════════
+# RUNTIME GENERATED FILES
+# ══════════════════════════════════════════════════════════════
+memory_bank.json
+*.jsonl
+*.parquet
+*.pkl
+*.pickle
+uv.lock
