@@ -1,6 +1,11 @@
 """
-IntelliCredit OpenEnv Models
+IntelliCredit OpenEnv Models — v2.0
 Typed Pydantic models for the OpenEnv spec: Observation, Action, Reward.
+
+v2 changes:
+  - IntelliCreditObservation extended to 55D (+ 10 memory features, dims 45-54)
+  - IntelliCreditAction gains is_tool_call flag
+  - ApplicationSummary gains repeat-applicant metadata
 """
 
 from typing import Dict, List, Any, Optional
@@ -73,7 +78,21 @@ class ApplicationSummary(BaseModel):
 
 class IntelliCreditObservation(BaseModel):
     """Full observation returned to the agent after each step.
-    Total observation dims: 25 (app) + 10 (portfolio) + 5 (macro) + 5 (alerts) = 45
+
+    v1 dims (UNCHANGED): 25 (app) + 10 (portfolio) + 5 (macro) + 5 (alerts) = 45
+    v2 dims (EXTENDED):  45 + 10 (memory features) = 55
+
+    New memory dims 45-54:
+      45: rolling_npa_rate_10step
+      46: approval_rate_recent
+      47: sector_max_concentration
+      48: macro_stress_trend
+      49: borrower_persistence_score
+      50: audit_risk_score
+      51: capital_buffer_ratio
+      52: recent_reflection_count
+      53: episode_progress
+      54: world_model_confidence
     """
 
     # 25-dim application feature vector (normalized -1 to 1; -1 = missing)
@@ -132,4 +151,38 @@ class IntelliCreditObservation(BaseModel):
     score_breakdown: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Detailed score breakdown, only set when done=True"
+    )
+
+    # ── v2: 10D Memory Features (dims 45-54) ──────────────────────
+    memory_features: List[float] = Field(
+        default_factory=list,
+        description=(
+            "10-dimensional memory/context vector (v2). "
+            "[rolling_npa_10step, approval_rate_recent, sector_max_concentration, "
+            "macro_stress_trend, borrower_persistence_score, audit_risk_score, "
+            "capital_buffer_ratio, recent_reflection_count, episode_progress, "
+            "world_model_confidence]"
+        )
+    )
+
+    # ── v2: Multi-agent metadata ───────────────────────────────────
+    is_repeat_applicant: bool = Field(
+        default=False,
+        description="True if current borrower has been rejected before in this episode"
+    )
+    attempt_number: int = Field(
+        default=1,
+        description="How many times this borrower has applied (1, 2, or 3)"
+    )
+    tool_call_count: int = Field(
+        default=0,
+        description="Number of tool calls made so far in this step (resets each step)"
+    )
+    regulator_warning_level: int = Field(
+        default=0,
+        description="Consecutive audit failures (0=clean, 1=warning, 2=penalty, 3=shutdown)"
+    )
+    audit_result: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Regulator audit result, populated only on audit steps (10,20,30,40,50)"
     )

@@ -1,13 +1,20 @@
 """
-FastAPI application for IntelliCredit-CreditAppraisal-v1 Environment.
+FastAPI application for IntelliCredit-CreditAppraisal-v2.0 Environment.
 
 Endpoints:
     - POST /reset: Reset the environment
-    - POST /step: Execute a credit decision
+    - POST /step: Execute a credit decision (or tool call)
     - GET /state: Get current environment state
-    - GET /info: Get environment metadata (GAP 15)
+    - GET /info: Get environment metadata
     - GET /schema: Get action/observation schemas
     - WS /ws: WebSocket endpoint for persistent sessions
+
+v2 changes:
+    - 50-step episodes (was 12)
+    - 55D observation (45D base + 10D memory features)
+    - Multi-agent: BorrowerAgent + RegulatorAgent simulated by env
+    - Regulator audits at steps 10/20/30/40/50
+    - Tool call support via action_parser
 """
 
 try:
@@ -41,11 +48,14 @@ POST /reset
 { "episode_id": "my-session-1", "seed": 42 }
 ```
 
-**Step 2 — Step (repeat up to 12 times):**
+**Step 2 — Step (repeat up to 50 times):**
 ```json
 POST /step
 { "episode_id": "my-session-1", "action": { "decision": 0 }, "timeout_s": 30 }
 ```
+
+> **v2**: Regulator audits auto-fire at steps 10, 20, 30, 40, 50.
+> Rejected borrowers reapply after a 3–5 step cooling period with improved surface profiles.
 
 > `decision` values: **0 = APPROVE**, **1 = CONDITIONAL**, **2 = REJECT**
 
@@ -71,9 +81,9 @@ app = create_app(
 )
 
 # Inject rich description into FastAPI app metadata
-app.title = "IntelliCredit-CreditAppraisal-v1"
+app.title = "IntelliCredit-CreditAppraisal-v2"
 app.description = _DESCRIPTION
-app.version = "1.0.0"
+app.version = "2.0.0"
 
 
 from fastapi.responses import RedirectResponse
@@ -93,14 +103,27 @@ def health_check():
 def get_info():
     """Return environment metadata for validators and documentation."""
     return {
-        "name": "IntelliCredit-CreditAppraisal-v1",
-        "version": "1.0.0",
-        "observation_dims": 45,
+        "name": "IntelliCredit-CreditAppraisal-v2",
+        "version": "2.0.0",
+        "observation_dims": 55,
         "observation_sub_spaces": {
-            "application_features": 25,
-            "portfolio_state": 10,
-            "macro_state": 5,
-            "alert_state": 5,
+            "application_features": 25,   # dims 0-24  (unchanged from v1)
+            "portfolio_state": 10,         # dims 25-34 (unchanged from v1)
+            "macro_state": 5,              # dims 35-39 (unchanged from v1)
+            "alert_state": 5,              # dims 40-44 (unchanged from v1)
+            "memory_features": 10,         # dims 45-54 (NEW in v2)
+        },
+        "memory_feature_labels": {
+            "45": "rolling_npa_rate_10step",
+            "46": "approval_rate_recent",
+            "47": "sector_max_concentration",
+            "48": "macro_stress_trend",
+            "49": "borrower_persistence_score",
+            "50": "audit_risk_score",
+            "51": "capital_buffer_ratio",
+            "52": "recent_reflection_count",
+            "53": "episode_progress",
+            "54": "world_model_confidence",
         },
         "action_space": 3,
         "action_labels": {
@@ -115,14 +138,28 @@ def get_info():
             }
             for tid, cfg in TASK_CONFIGS.items()
         },
-        "max_steps_per_episode": 12,
+        "max_steps_per_episode": 50,
+        "audit_steps": [10, 20, 30, 40, 50],
         "constraints": {
             "max_npa_rate": 0.05,
             "min_crar": 0.125,
             "max_sector_concentration": 0.30,
             "max_single_borrower_pct": 0.15,
         },
-        "reward_range": [-5.0, 3.0],
+        "hard_rules": [
+            "HR-01: DSCR < 1.0",
+            "HR-02: Director disqualification (DIN < 0.1)",
+            "HR-03: RED forensic alert present",
+            "HR-04: Cheque bounce rate > 25%",
+            "HR-05: GST compliance < 40%",
+            "HR-06: Severe adverse media (sentiment > 0.80)",
+        ],
+        "multi_agent": {
+            "borrower_agent": "Programmatic — reapplies up to 3 times with improved surface profile",
+            "regulator_agent": "Programmatic — audits at steps 10/20/30/40/50, can shut down episode",
+            "credit_officer": "LLM under training — receives 55D obs + text prompt, calls tools or submits decision",
+        },
+        "reward_range": [-20.0, 15.0],
         "framework": "OpenEnv (Meta × Hugging Face × PyTorch)",
     }
 

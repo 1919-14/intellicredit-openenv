@@ -1,8 +1,13 @@
 """
-IntelliCredit PPO Training Baseline
-====================================
-Train a PPO agent on IntelliCredit-CreditAppraisal-v1 (Task 1 - Easy)
+IntelliCredit PPO Training Baseline — v2.0
+==========================================
+Train a PPO agent on IntelliCredit-CreditAppraisal-v2.0 (Task 1 - Easy)
 and generate a learning curve to prove learnability.
+
+v2 changes:
+    - 55D observation space (45D + 10D memory features)
+    - 50-step episodes
+    - Regulator audits auto-fire at steps 10/20/30/40/50
 
 Usage:
     pip install -r training/requirements.txt
@@ -11,8 +16,6 @@ Usage:
 Output:
     training/learning_curve.png
     training/ppo_intellicredit/  (saved model)
-
-GAP 8: Proves the environment is learnable via RL.
 """
 
 import sys
@@ -35,7 +38,7 @@ from models import IntelliCreditAction
 
 
 class IntelliCreditGymWrapper(gym.Env):
-    """Wraps IntelliCreditEnvironment into a gymnasium.Env for SB3 training."""
+    """Wraps IntelliCreditEnvironment v2 into a gymnasium.Env for SB3 training."""
 
     metadata = {"render_modes": []}
 
@@ -44,22 +47,22 @@ class IntelliCreditGymWrapper(gym.Env):
         self._env = IntelliCreditEnvironment(task_id=task_id)
         self._task_id = task_id
 
-        # 45-dim observation: 25 app + 10 portfolio + 5 macro + 5 alerts
-        # Bounds: [-1, 1] to accommodate missing data sentinel (-1.0)
+        # v2: 55D observation (25 app + 10 portfolio + 5 macro + 5 alerts + 10 memory)
         self.observation_space = spaces.Box(
-            low=-1.0, high=1.0, shape=(45,), dtype=np.float32
+            low=-1.0, high=1.0, shape=(55,), dtype=np.float32
         )
         self.action_space = spaces.Discrete(3)
 
     def _obs_to_array(self, obs) -> np.ndarray:
-        """Convert IntelliCreditObservation to flat numpy array."""
+        """Convert IntelliCreditObservation to flat 55D numpy array."""
         vec = (
             obs.application_features    # 25
             + obs.portfolio_state        # 10
             + obs.macro_state            # 5
             + obs.alert_state            # 5
+            + (obs.memory_features if obs.memory_features else [0.0] * 10)  # 10 (v2)
         )
-        return np.array(vec, dtype=np.float32)
+        return np.clip(np.array(vec, dtype=np.float32), -1.0, 1.0)
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -76,6 +79,9 @@ class IntelliCreditGymWrapper(gym.Env):
         info = {
             "episode_score": obs.episode_score,
             "reward_components": obs.reward_components,
+            "audit_result": obs.audit_result,
+            "is_repeat_applicant": obs.is_repeat_applicant,
+            "regulator_warning_level": obs.regulator_warning_level,
         }
 
         return self._obs_to_array(obs), reward, terminated, truncated, info
@@ -137,7 +143,7 @@ def plot_learning_curve(rewards, output_path="training/learning_curve.png"):
     ax.set_xlabel("Episode", fontsize=13)
     ax.set_ylabel("Total Episode Reward", fontsize=13)
     ax.set_title(
-        "IntelliCredit-CreditAppraisal-v1 — PPO Learning Curve (Task 1)",
+        "IntelliCredit-CreditAppraisal-v2.0 — PPO Learning Curve (Task 1, 50-step episodes)",
         fontsize=14, fontweight="bold"
     )
     ax.legend(fontsize=11)
@@ -169,8 +175,9 @@ def plot_learning_curve(rewards, output_path="training/learning_curve.png"):
 
 def main():
     print("=" * 60)
-    print("  IntelliCredit PPO Training")
-    print("  Task: task1 (Easy — Clean profiles)")
+    print("  IntelliCredit PPO Training (v2.0)")
+    print("  Task: task1 (Easy — Clean profiles, 50 steps)")
+    print("  Observation: 55D (45D base + 10D memory)")
     print("=" * 60)
 
     # Create environment
