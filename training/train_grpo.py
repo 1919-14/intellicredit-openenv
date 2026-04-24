@@ -82,6 +82,16 @@ MODEL_CONFIGS = {
         "target_modules" : ["q_proj", "v_proj"],
         "description"   : "Debug/fastest: Gemma-3-1B-Instruct",
     },
+    "gemma_2b": {
+        "model_name"    : "unsloth/gemma-2-2b-it",
+        "max_seq_length": 1024,
+        "load_in_4bit"  : True,
+        "lora_r"        : 8,
+        "lora_alpha"    : 8,
+        "lora_dropout"  : 0.0,
+        "target_modules" : ["q_proj", "v_proj", "k_proj", "o_proj"],
+        "description"   : "Gemma-2-2B-Instruct",
+    },
 }
 
 DEFAULT_MODEL = "llama3_8b"
@@ -144,21 +154,56 @@ STAGE_CONFIGS = {
 # DATASET LOADING
 # ═══════════════════════════════════════════════════════════════
 
-def load_dataset(task_filter: List[str] = None) -> List[dict]:
+def load_dataset(task_filter: List[str] = None, hf_dataset: str = None) -> List[dict]:
     """Load the GRPO dataset, optionally filtering by task levels."""
-    if not os.path.exists(DATASET_PATH):
-        print(f"  ❌ Dataset not found at {DATASET_PATH}")
-        print(f"  Run: python training/generate_dataset.py first")
-        sys.exit(1)
-
     samples = []
-    with open(DATASET_PATH, "r") as f:
-        for line in f:
-            row = json.loads(line)
-            if task_filter:
-                if row["metadata"]["task_id"] not in task_filter:
-                    continue
-            samples.append(row)
+    
+    if hf_dataset:
+        print(f"  Downloading dataset from Hugging Face Hub: {hf_dataset}...")
+        try:
+            from huggingface_hub import hf_hub_download
+        except ImportError:
+            print("  ❌ Install: pip install huggingface_hub")
+            sys.exit(1)
+            
+        try:
+            file_path = hf_hub_download(repo_id=hf_dataset, repo_type="dataset", filename="grpo_dataset.jsonl")
+            with open(file_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    row = json.loads(line)
+                    # If it's the flattened format from push_to_hub:
+                    if "metadata" not in row:
+                        metadata = {
+                            "task_id": row.get("task_id", ""),
+                            "ground_truth_pd": row.get("ground_truth_pd", 0.0),
+                            "optimal_action": row.get("optimal_action", 0),
+                            "hard_rules": json.loads(row.get("hard_rules", "[]")) if isinstance(row.get("hard_rules"), str) else row.get("hard_rules", []),
+                            "has_red_alerts": row.get("has_red_alerts", False),
+                            "npa_rate": row.get("npa_rate", 0.02),
+                            "crar": row.get("crar", 0.18),
+                            "sector": row.get("sector", "Unknown"),
+                        }
+                        row = {"prompt": row["prompt"], "metadata": metadata}
+                        
+                    if task_filter and row["metadata"]["task_id"] not in task_filter:
+                        continue
+                    samples.append(row)
+        except Exception as e:
+            print(f"  ❌ Failed to download or read dataset: {e}")
+            sys.exit(1)
+    else:
+        if not os.path.exists(DATASET_PATH):
+            print(f"  ❌ Dataset not found at {DATASET_PATH}")
+            print(f"  Run: python training/generate_dataset.py first")
+            sys.exit(1)
+
+        with open(DATASET_PATH, "r") as f:
+            for line in f:
+                row = json.loads(line)
+                if task_filter:
+                    if row["metadata"]["task_id"] not in task_filter:
+                        continue
+                samples.append(row)
 
     print(f"  Loaded {len(samples)} samples (filter={task_filter})")
     return samples
@@ -296,6 +341,7 @@ def train_stage(
     model_key: str = DEFAULT_MODEL,
     resume: bool = False,
     dry_run: bool = False,
+    hf_repo: str = None,
 ):
     """
     Execute one training stage.
@@ -315,7 +361,7 @@ def train_stage(
     print(f"{'='*65}")
 
     # Load dataset
-    samples = load_dataset(task_filter=config["task_filter"])
+    samples = load_dataset(task_filter=config["task_filter"], hf_dataset=hf_repo)
     if not samples:
         print("  ❌ No samples found for this task filter!")
         return
@@ -519,6 +565,9 @@ def main():
     parser.add_argument("--push", action="store_true",
                         help="Push merged model to HF Hub")
 
+    parser.add_argument("--hf-dataset", type=str, default=None,
+                        help="Hugging Face dataset repository to use (e.g. vssksn/intellicredit-grpo-v2)")
+
     args = parser.parse_args()
 
     print("╔══════════════════════════════════════════════════════════╗")
@@ -535,11 +584,11 @@ def main():
     if args.stage == "all":
         for s in [1, 2, 3]:
             train_stage(s, model_key=args.model,
-                       resume=(s > 1), dry_run=args.dry_run)
+                       resume=(s > 1), dry_run=args.dry_run, hf_repo=args.hf_dataset)
     else:
         stage = int(args.stage)
         train_stage(stage, model_key=args.model,
-                   resume=args.resume, dry_run=args.dry_run)
+                   resume=args.resume, dry_run=args.dry_run, hf_repo=args.hf_dataset)
 
     print(f"\n{'='*65}")
     print(f"  GRPO Training Pipeline Complete ✓")
