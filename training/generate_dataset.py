@@ -34,7 +34,7 @@ from server.agent_loop import build_system_prompt
 # CONSTANTS
 # ═══════════════════════════════════════════════════════════════
 
-PROMPTS_PER_TASK = 400
+PROMPTS_PER_TASK = 1000
 TASKS = ["task1", "task2", "task3", "task4", "task5"]
 TOTAL_PROMPTS = PROMPTS_PER_TASK * len(TASKS)
 

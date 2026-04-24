@@ -397,7 +397,7 @@ def train_stage(
         model_name     = checkpoint_path or model_config["model_name"],
         max_seq_length = model_config["max_seq_length"],
         load_in_4bit   = model_config["load_in_4bit"],
-        fast_inference  = True,
+        fast_inference  = False,  # False during training; True only for vLLM inference serving
     )
 
     # Apply LoRA
@@ -412,8 +412,8 @@ def train_stage(
     print(f"  ✓ Model loaded ({model_config['model_name']})")
 
     # ── Prepare dataset ──────────────────────────────────────────
-    hf_dataset = prepare_hf_dataset(samples)
-    print(f"  ✓ Dataset prepared ({len(hf_dataset)} samples)")
+    train_dataset = prepare_hf_dataset(samples)
+    print(f"  ✓ Dataset prepared ({len(train_dataset)} samples)")
 
     # ── Build reward functions ───────────────────────────────────
     reward_funcs = build_reward_funcs()
@@ -457,7 +457,7 @@ def train_stage(
     trainer = GRPOTrainer(
         model         = model,
         args          = training_args,
-        train_dataset = hf_dataset,
+        train_dataset = train_dataset,
         reward_funcs  = reward_funcs,
         tokenizer     = tokenizer,
     )

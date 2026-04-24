@@ -144,8 +144,16 @@ def reward_hard_rule_compliance(
     for i, completion in enumerate(completions):
         action, _, _ = _extract_action(completion)
 
-        # Get hard rules from metadata
-        hr = hard_rules[i] if hard_rules else []
+        # Get hard rules from metadata (may arrive as JSON string from dataset)
+        hr_raw = hard_rules[i] if hard_rules else []
+        if isinstance(hr_raw, str):
+            import json as _json
+            try:
+                hr = _json.loads(hr_raw)
+            except Exception:
+                hr = []
+        else:
+            hr = list(hr_raw) if hr_raw else []
         red = has_red_alerts[i] if has_red_alerts else False
 
         # Also check prompt text for hard rules
