@@ -27,7 +27,6 @@ cffi==2.0.0
 charset-normalizer==3.4.6
 click==8.3.1
 cloudpickle==3.1.2
-code-review-graph==2.3.2
 colorama==0.4.6
 compressed-tensors==0.15.0.1
 contourpy==1.3.3
