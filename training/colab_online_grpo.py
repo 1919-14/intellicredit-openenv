@@ -19,11 +19,40 @@ Paste each ═══ CELL ═══ block into a separate Colab cell.
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 1: INSTALL ═══
+# ═══ CELL 1: INSTALL  (run once, then Runtime → Restart session) ═══
 # ════════════════════════════════════════════════════════════════════
-# !pip install --upgrade pip -q
-# !pip install "trl>=0.15.2" peft accelerate bitsandbytes -q
-# !pip install "transformers>=4.45.0" datasets huggingface_hub matplotlib -q
+
+import subprocess, sys
+
+def _pip(*args):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *args])
+
+# Core training stack — version-pinned to avoid conflicts on Colab T4
+_pip("--upgrade", "pip")
+_pip("bitsandbytes>=0.46.1")                        # REQUIRED for 4-bit QLoRA
+_pip("transformers>=4.45.0,<5.0.0")                 # stable API
+_pip("trl>=0.15.2", "peft>=0.13.0", "accelerate>=1.0.0")
+_pip("datasets>=2.20.0", "huggingface_hub>=0.24.0", "matplotlib")
+
+# ── HF Token (optional but avoids rate-limit warnings) ──
+# In Colab: Secrets (🔑 icon) → add HF_TOKEN with your token from
+#   https://huggingface.co/settings/tokens
+import os
+try:
+    from google.colab import userdata
+    hf_tok = userdata.get("HF_TOKEN")
+    if hf_tok:
+        os.environ["HF_TOKEN"] = hf_tok
+        from huggingface_hub import login
+        login(token=hf_tok, add_to_git_credential=False)
+        print("✅ HF Token loaded from Colab secrets")
+    else:
+        print("⚠️  HF_TOKEN not set — using anonymous HF access (rate-limited but OK for public models)")
+except Exception:
+    print("⚠️  Not in Colab or no HF_TOKEN secret — anonymous HF access")
+
+print("\n✅ All packages installed")
+print("   ⚡ IMPORTANT: Runtime → Restart session → then run from Cell 2")
 
 
 # ════════════════════════════════════════════════════════════════════
