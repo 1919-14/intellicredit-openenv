@@ -98,32 +98,107 @@ print(f"   KL_BETA={KL_BETA} | NUM_GEN={NUM_GENERATIONS} | MULTI_STEP={MULTI_STE
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 3: ACTION PARSER ══════════════════════════════════════════
+# ═══ CELL 3: ACTION PARSER v3 (robust — handles Qwen verbose style) ═
 # ════════════════════════════════════════════════════════════════════
+#
+# Priority cascade (highest → lowest confidence):
+#  L1: exact   submit_decision("ACTION", "reason")
+#  L2: fuzzy   submit variants (missing quotes, typos, camelCase)
+#  L3: tool    get_financial_report(...) / check_compliance_status(...)
+#  L4: label   Final Decision: REJECT  /  Decision: APPROVE  / My recommendation: ...
+#  L5: sentence I would REJECT / I recommend to APPROVE / Therefore, CONDITIONAL
+#  L6: keyword last standalone APPROVE/REJECT/CONDITIONAL anywhere in text
+#  L7: default silent REJECT (parse_failure=True, lowest reward)
 
 ACTION_MAP = {
     "APPROVE": 0, "APPROVED": 0,
     "CONDITIONAL": 1, "CONDITIONAL_APPROVE": 1, "CONDITIONAL APPROVE": 1,
     "REJECT": 2, "REJECTED": 2, "DECLINE": 2, "DENY": 2,
+    "CONDITIONALLY APPROVE": 1, "CONDITIONAL APPROVAL": 1,
 }
-_RE_SUBMIT = re.compile(
-    r"submit_decision\s*\(\s*['\"]?([A-Z_]+)['\"]?\s*,\s*['\"]?(.*?)['\"]?\s*\)",
+
+# ── compiled regex patterns ────────────────────────────────────────
+_ACT = r"(APPROVE[D]?|CONDITIONAL[_\s]?APPROVE[D]?|CONDITIONAL|REJECT(?:ED)?|DECLINE|DENY)"
+
+# L1: exact submit_decision("ACTION", "reason")
+_RE_L1_EXACT = re.compile(
+    r"submit_decision\s*\(\s*['\"]?\s*" + _ACT + r"\s*['\"]?"
+    r"(?:\s*,\s*['\"]?(.*?)['\"]?)?\s*\)",
     re.IGNORECASE | re.DOTALL,
 )
-_RE_TOOL = re.compile(
+
+# L2: fuzzy variants — submit decision / submitDecision / submit-decision / decision(...)
+_RE_L2_FUZZY = re.compile(
+    r"(?:submit[\s_-]?decision|submitDecision|final[\s_]?decision\s*\(|decision\s*\()"
+    r"\s*\(\s*['\"]?\s*" + _ACT + r"\s*['\"]?"
+    r"(?:\s*,\s*['\"]?(.*?)['\"]?)?\s*\)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# L3: tool call
+_RE_L3_TOOL = re.compile(
     r"\b(get_financial_report|check_compliance_status|get_market_intelligence)"
     r"\s*\(\s*['\"]?([^)'\"]*)['\"]?\s*\)",
     re.IGNORECASE,
 )
-_RE_KEYWORD = re.compile(
-    r"\b(APPROVE(?:D)?|CONDITIONAL(?:_APPROVE)?|REJECT(?:ED)?|DECLINE|DENY)\b",
+
+# L4: structured label on its own line / after a colon
+#     "Final Decision: REJECT"  |  "Decision: APPROVE"  |  "**REJECT**"
+_RE_L4_LABEL = re.compile(
+    r"(?:"
+    r"(?:final\s+)?(?:decision|recommendation|answer|verdict|conclusion)"
+    r"|my\s+(?:final\s+)?(?:recommendation|decision|answer)"
+    r"|credit\s+(?:decision|recommendation)"
+    r")"
+    r"[\s:*─—]+\**\s*" + _ACT,
     re.IGNORECASE,
 )
+
+# Support bare bold like **REJECT** or __APPROVE__ at start of a line
+_RE_L4_BOLD = re.compile(
+    r"(?:^|\n)\s*[*_]{1,2}\s*" + _ACT + r"\s*[*_]{1,2}",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# L5: decision embedded in a sentence
+#     "I would reject"  |  "We should approve"  |  "Therefore, reject"
+_RE_L5_SENTENCE = re.compile(
+    r"(?:"
+    r"(?:I|we)\s+(?:would|will|must|should|hereby|therefore|thus|hence)?\s*"
+    r"(?:recommend(?:\s+(?:to|that\s+we))?\s+)?"
+    r"|(?:therefore|thus|hence|consequently|accordingly|as\s+such),?\s+(?:(?:I|we)\s+)?"
+    r"|(?:my\s+)?recommendation\s+is\s+(?:to\s+)?"
+    r"|I\s+am\s+(?:going\s+to|recommending\s+(?:to\s+)?|submitting\s+(?:to\s+)?)?"
+    r")"
+    + _ACT,
+    re.IGNORECASE,
+)
+
+# L6: bare keyword — last mention anywhere
+_RE_L6_KEYWORD = re.compile(
+    r"\b" + _ACT + r"\b",
+    re.IGNORECASE,
+)
+
 
 def _unwrap(text) -> str:
     if isinstance(text, list):
         return " ".join(m.get("content", "") for m in text if isinstance(m, dict))
     return str(text) if not isinstance(text, str) else text
+
+
+def _norm_action(raw: str) -> int:
+    """Normalise a matched action string to 0/1/2."""
+    k = raw.upper().strip()
+    k = re.sub(r"[\s_]+", " ", k)   # collapse spaces/underscores
+    return ACTION_MAP.get(k, ACTION_MAP.get(k.split()[0], 2))
+
+
+def _extract_context(t: str, match_end: int, window: int = 200) -> str:
+    """Extract surrounding text as reasoning context."""
+    start = max(0, match_end - window)
+    return t[start:match_end + window].strip()
+
 
 def parse_llm_output(text) -> Dict:
     t = _unwrap(text).strip()
@@ -131,37 +206,112 @@ def parse_llm_output(text) -> Dict:
         return {"action": 2, "parse_type": "default_reject",
                 "parse_confidence": 0.0, "reasoning": "",
                 "tool_name": None, "tool_args": None, "parse_failure": True}
-    tm = _RE_TOOL.search(t)
+
+    # ── L3: tool call — check BEFORE decision patterns so tool text
+    #         in the middle of a response doesn't get mis-parsed        ──────
+    tm = _RE_L3_TOOL.search(t)
     if tm:
         raw_arg   = tm.group(2).strip().strip("'\"")
         tool_name = tm.group(1).lower()
-        tool_args = {"sector": raw_arg} if "market_intelligence" in tool_name else {"company_id": raw_arg}
-        return {"action": 2, "parse_type": "tool_call", "tool_name": tool_name,
-                "tool_arg": raw_arg, "tool_args": tool_args,
-                "parse_confidence": 0.95, "reasoning": f"calling {tool_name}",
+        tool_args = ({"sector": raw_arg}
+                     if "market_intelligence" in tool_name
+                     else {"company_id": raw_arg})
+        return {"action": 2, "parse_type": "tool_call",
+                "tool_name": tool_name, "tool_arg": raw_arg,
+                "tool_args": tool_args, "parse_confidence": 0.95,
+                "reasoning": f"calling {tool_name}",
                 "parse_failure": False}
-    ms = list(_RE_SUBMIT.finditer(t))
+
+    # ── L1: exact submit_decision ─────────────────────────────────────
+    ms = list(_RE_L1_EXACT.finditer(t))
     if ms:
-        m   = ms[-1]
-        raw = m.group(1).upper().strip()
+        m   = ms[-1]   # take last match (model may reason, then conclude)
+        raw = m.group(1)
         rsn = (m.group(2) or "").strip()
-        act = ACTION_MAP.get(raw, ACTION_MAP.get(raw.replace("_", " "), 2))
+        # fall back: grab text between previous sentence and match as context
+        if not rsn:
+            rsn = _extract_context(t, m.start(), 120)
+        act = _norm_action(raw)
         return {"action": act, "parse_type": "final_decision",
-                "parse_confidence": 0.90 if rsn else 0.65,
+                "parse_confidence": 0.95 if rsn else 0.70,
                 "reasoning": rsn, "tool_name": None, "tool_args": None,
                 "parse_failure": False}
-    kms = list(_RE_KEYWORD.finditer(t))
-    if kms:
-        kw  = kms[-1].group(1).upper()
-        act = ACTION_MAP.get(kw, 2)
+
+    # ── L2: fuzzy submit variants ─────────────────────────────────────
+    ms2 = list(_RE_L2_FUZZY.finditer(t))
+    if ms2:
+        m   = ms2[-1]
+        raw = m.group(1)
+        rsn = (m.group(2) or "").strip()
+        act = _norm_action(raw)
+        return {"action": act, "parse_type": "final_decision",
+                "parse_confidence": 0.80,
+                "reasoning": rsn or _extract_context(t, m.start(), 100),
+                "tool_name": None, "tool_args": None, "parse_failure": False}
+
+    # ── L4: structured label ──────────────────────────────────────────
+    ml4a = list(_RE_L4_LABEL.finditer(t))
+    ml4b = list(_RE_L4_BOLD.finditer(t))
+    all_l4 = sorted(ml4a + ml4b, key=lambda m: m.end())
+    if all_l4:
+        m   = all_l4[-1]
+        raw = m.group(1)
+        act = _norm_action(raw)
+        rsn = t[max(0, m.start() - 200): m.end()].strip()
+        return {"action": act, "parse_type": "structured_label",
+                "parse_confidence": 0.75, "reasoning": rsn,
+                "tool_name": None, "tool_args": None, "parse_failure": False}
+
+    # ── L5: sentence-level intent ─────────────────────────────────────
+    ml5 = list(_RE_L5_SENTENCE.finditer(t))
+    if ml5:
+        m   = ml5[-1]
+        raw = m.group(1)
+        act = _norm_action(raw)
+        rsn = t[max(0, m.start() - 150): m.end() + 50].strip()
+        return {"action": act, "parse_type": "sentence_decision",
+                "parse_confidence": 0.65, "reasoning": rsn,
+                "tool_name": None, "tool_args": None, "parse_failure": False}
+
+    # ── L6: bare keyword anywhere ─────────────────────────────────────
+    ml6 = list(_RE_L6_KEYWORD.finditer(t))
+    if ml6:
+        m   = ml6[-1]
+        raw = m.group(1)
+        act = _norm_action(raw)
         return {"action": act, "parse_type": "fallback_keyword",
-                "parse_confidence": 0.55, "reasoning": t[-100:],
+                "parse_confidence": 0.45, "reasoning": t[-150:],
                 "tool_name": None, "tool_args": None, "parse_failure": True}
+
+    # ── L7: silence / unparseable ─────────────────────────────────────
     return {"action": 2, "parse_type": "default_reject",
             "parse_confidence": 0.0, "reasoning": "",
             "tool_name": None, "tool_args": None, "parse_failure": True}
 
-print("✅ Action parser loaded")
+
+# ── Self-test ─────────────────────────────────────────────────────
+_PARSER_TESTS = [
+    ('submit_decision("REJECT", "DSCR below 1.0")',                          "final_decision",    2),
+    ("submit_decision(APPROVE, strong financials DSCR 1.8x)",                "final_decision",    0),
+    ("get_financial_report('Acme Corp')",                                    "tool_call",         2),
+    ("Final Decision: CONDITIONAL",                                          "structured_label",  1),
+    ("**REJECT**",                                                           "structured_label",  2),
+    ("I would recommend to APPROVE this application given strong metrics.",  "sentence_decision", 0),
+    ("Therefore, REJECT.",                                                   "sentence_decision", 2),
+    ("Based on my analysis REJECT",                                          "fallback_keyword",  2),
+    ("The applicant is a good risk.",                                        "default_reject",    2),
+]
+_pass = _fail = 0
+for _txt, _expected_type, _expected_act in _PARSER_TESTS:
+    _r = parse_llm_output(_txt)
+    _ok = (_r["parse_type"] == _expected_type and _r["action"] == _expected_act)
+    if _ok: _pass += 1
+    else:
+        _fail += 1
+        print(f"  ⚠️  PARSER FAIL: '{_txt[:50]}' → got {_r['parse_type']}/{_r['action']}, "
+              f"expected {_expected_type}/{_expected_act}")
+print(f"✅ Action parser v3 loaded — {_pass}/{len(_PARSER_TESTS)} self-tests passed"
+      + (f" ({_fail} failed)" if _fail else ""))
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -219,23 +369,44 @@ def reward_hard_rules(prompts, completions, hard_rules, has_red_alerts, **kw) ->
 
 
 def reward_format(prompts, completions, **kw) -> List[float]:
+    """
+    Smooth 7-tier reward gradient — guides model step by step toward
+    full submit_decision() compliance:
+
+    default_reject   : -1.0  (unparseable — worst)
+    fallback_keyword : -0.3  (found a word, not a decision)
+    sentence_decision: +0.2  (implied intent in text — partial credit)
+    structured_label : +0.4  (e.g. "Final Decision: REJECT" — good progress)
+    tool_call        : +0.1  (mid-episode tool use — neutral/slight positive)
+    final_decision   : +0.6  (submit_decision() with short reasoning)
+    final_decision   : +1.0  (submit_decision() with 20+ word reasoning — perfect)
+    """
     scores = []
     for comp in completions:
         p   = parse_llm_output(comp)
         rsn = p.get("reasoning", "")
-        # ── Language penalty ──────────────────────────────────────────
-        lang_ok = _is_english(comp)
-        lang_penalty = 0.0 if lang_ok else -2.0   # severe penalty for non-English
-        if p["parse_type"] == "final_decision" and len(rsn) > 20:
-            s = 1.0
-        elif p["parse_type"] == "final_decision":
-            s = 0.3
-        elif p["parse_type"] == "tool_call":
-            s = 0.1
-        elif p["parse_type"] == "fallback_keyword":
-            s = -0.5
-        else:
+        pt  = p["parse_type"]
+
+        # ── Language penalty (severe — prevents multilingual drift) ───
+        lang_ok      = _is_english(comp)
+        lang_penalty = 0.0 if lang_ok else -2.0
+
+        # ── 7-tier format reward ──────────────────────────────────────
+        if pt == "final_decision" and len(rsn) > 20:
+            s = 1.0    # perfect: submit_decision + solid reasoning
+        elif pt == "final_decision":
+            s = 0.6    # good: submit_decision but short/missing reasoning
+        elif pt == "structured_label":
+            s = 0.4    # e.g. "Final Decision: REJECT" — model getting close
+        elif pt == "sentence_decision":
+            s = 0.2    # e.g. "I would REJECT..." — intent clear, wrong format
+        elif pt == "tool_call":
+            s = 0.1    # mid-episode tool use — correct behaviour
+        elif pt == "fallback_keyword":
+            s = -0.3   # bare keyword only — very weak signal
+        else:          # default_reject: unparseable/multilingual garbage
             s = -1.0
+
         scores.append(s + lang_penalty)
     return scores
 
