@@ -19,6 +19,7 @@ class IntelliCreditAction(BaseModel):
         {"decision": 0}             ← canonical format
         {"value": 0}                ← Swagger UI default auto-fill
         {"action": 0}               ← alternative convention
+        {"llm_output": "..."}       ← v2 raw LLM output, parsed by env
         0                           ← raw integer (JSON primitive)
     """
     decision: int = Field(
@@ -29,6 +30,39 @@ class IntelliCreditAction(BaseModel):
     reasoning: Optional[str] = Field(
         default=None,
         description="Optional reasoning for the decision (used by LLM agents)"
+    )
+    llm_output: Optional[str] = Field(
+        default=None,
+        description=(
+            "Raw LLM text for v2 agent mode. May contain a tool call such as "
+            "get_financial_report(...) or a final submit_decision(...)."
+        ),
+    )
+    raw_text: Optional[str] = Field(
+        default=None,
+        description="Alias for llm_output used by some training clients.",
+    )
+    parse_type: Optional[str] = Field(
+        default=None,
+        description="Parser result type supplied by a client-side parser, if available.",
+    )
+    parse_confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Parser confidence supplied by a client-side parser, if available.",
+    )
+    parse_failure: Optional[bool] = Field(
+        default=None,
+        description="True if parsing failed and the action was defaulted.",
+    )
+    tool_name: Optional[str] = Field(
+        default=None,
+        description="Tool name when this action represents a parsed tool call.",
+    )
+    tool_args: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Tool arguments when this action represents a parsed tool call.",
     )
 
     @model_validator(mode="before")
@@ -63,6 +97,8 @@ class IntelliCreditAction(BaseModel):
                 {"decision": 1},                   # canonical (CONDITIONAL)
                 {"decision": 2},                   # canonical (REJECT)
                 {"value": 0},                      # Swagger auto-fill fallback
+                {"llm_output": "get_financial_report('Acme Pvt. Ltd.')"},
+                {"llm_output": "submit_decision('REJECT', 'HR-03 red forensic alert present.')"},
             ]
         }
     }
@@ -185,4 +221,20 @@ class IntelliCreditObservation(BaseModel):
     audit_result: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Regulator audit result, populated only on audit steps (10,20,30,40,50)"
+    )
+    tool_result: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Structured tool result returned when a raw LLM tool call is executed."
+    )
+    tool_result_text: Optional[str] = Field(
+        default=None,
+        description="Human-readable tool result text for injection into the LLM context."
+    )
+    last_parse_type: Optional[str] = Field(
+        default=None,
+        description="Parser type for the last raw LLM action processed by the environment."
+    )
+    last_tool_name: Optional[str] = Field(
+        default=None,
+        description="Name of the most recent tool executed by the environment."
     )

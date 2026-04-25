@@ -871,3 +871,30 @@ Expanded from 9 lines → 100 lines. Same exclusions as .dockerignore plus:
 | `openenv.yaml`, `README.md` | ✅ | | | ✅ |
 
 *(Last updated: 2026-04-23 — Deployment config finalized for v2.0)*
+
+---
+
+## Phase 6: Online GRPO Tool-Using Rollout Fix
+
+### Problem Found
+- `training/colab_online_grpo.py` claimed to train against "real tools", but it only parsed model text into integer decisions and posted `{decision, reasoning}` to `/step`.
+- The HTTP environment action schema did not expose a raw LLM-output path, so generated calls such as `get_financial_report(...)` could not execute through the live API.
+- The online script also ignored the returned observation object and therefore did not feed the model the full 55D observation, repeat-applicant state, regulator warning state, audit results, or tool transcripts.
+
+### Implemented Direction
+- `IntelliCreditAction` now accepts `llm_output` / `raw_text` plus parser metadata.
+- `IntelliCreditObservation` now includes optional `tool_result`, `tool_result_text`, `last_parse_type`, and `last_tool_name` fields.
+- `IntelliCreditEnvironment.step()` now parses raw LLM output at the environment boundary:
+  - Tool call -> execute read-only tool, return tool result, do not advance step.
+  - Final decision -> parse `submit_decision(...)`, compute normal reward, advance step.
+  - Too many tools -> force a conditional decision with tool-efficiency penalty.
+- The online Colab GRPO script now builds prompts from a full multimodal observation bundle:
+  - Natural-language application summary.
+  - Structured 55D vector with labels.
+  - Multi-agent event metadata.
+  - Regulator audit data.
+  - Tool transcript.
+- The online rollout now trains on every generated turn, not only one "best" completion from the episode.
+- The script probes the deployed HF Space for raw server-side tool support. If the Space has not been redeployed yet, it uses safe shadow tools derived from the current observation so model training still learns the function-calling protocol without accidentally submitting tool strings as approvals.
+
+*(Last updated: 2026-04-25 — Online GRPO raw tool-call + full observation rollout fix appended)*
