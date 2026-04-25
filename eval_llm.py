@@ -157,8 +157,17 @@ class LocalLLMAgent:
             model=model_name,
             tokenizer=self.tokenizer,
             device=device,
-            torch_dtype=__import__("torch").bfloat16 if device == 0 else None,
+            dtype=__import__("torch").bfloat16 if device == 0 else None,
             trust_remote_code=True,
+        )
+        # Override any saved generation_config that might conflict with our
+        # max_new_tokens (e.g. a saved max_length=20 from GRPO training).
+        from transformers import GenerationConfig
+        self.pipe.model.generation_config = GenerationConfig(
+            max_new_tokens=MAX_NEW_TOKENS,
+            do_sample=True,
+            temperature=TEMPERATURE,
+            pad_token_id=self.tokenizer.eos_token_id,
         )
         print(f"  ✅ Model ready\n")
 
@@ -177,10 +186,8 @@ class LocalLLMAgent:
         try:
             output = self.pipe(
                 messages,
-                max_new_tokens=MAX_NEW_TOKENS,
-                do_sample=(TEMPERATURE > 0),
-                temperature=TEMPERATURE if TEMPERATURE > 0 else 1.0,
-                pad_token_id=self.tokenizer.eos_token_id,
+                # All generation params already set in generation_config above;
+                # passing them again here causes the deprecation warning.
             )
             # pipeline returns list of dicts; extract the generated assistant turn
             generated = output[0]["generated_text"]
@@ -257,10 +264,12 @@ def run_episode(env: EnvHTTPClient, agent: LocalLLMAgent,
     obs_data   = reset_resp.get("observation", reset_resp)
     done       = bool(reset_resp.get("done", False) or obs_data.get("done", False))
 
-    rewards:  list[float] = []
-    decisions: list[str]  = []
+    rewards:     list[float] = []
+    decisions:   list[str]  = []
     episode_score = 0.0
+    breakdown:   dict = {}
     step = 0
+    last_resp:   dict = {}
 
     while not done and step < num_steps:
         step += 1
@@ -269,6 +278,7 @@ def run_episode(env: EnvHTTPClient, agent: LocalLLMAgent,
         action_str = DECISION_LABELS[decision]
 
         step_resp = env.step(action={"decision": decision}, episode_id=episode_id)
+        last_resp = step_resp                              # keep reference for post-loop
         obs_data  = step_resp.get("observation", step_resp)
         reward    = float(step_resp.get("reward", 0.0) or 0.0)
         done      = bool(step_resp.get("done", False) or obs_data.get("done", False))
@@ -279,13 +289,35 @@ def run_episode(env: EnvHTTPClient, agent: LocalLLMAgent,
         print(f"    Step {step:2d}: {action_str:<12} | reward={reward:+.2f} | "
               f"cumulative={sum(rewards):+.2f}")
 
+        # Debug: print raw response keys on first step so we know the structure
+        if step == 1:
+            print(f"    [debug] resp keys: {list(step_resp.keys())}")
+
         if done:
-            episode_score = float(obs_data.get("episode_score") or 0.0)
+            # episode_score may be at top level OR inside observation
+            episode_score = (
+                float(step_resp.get("episode_score") or 0.0)
+                or float(obs_data.get("episode_score") or 0.0)
+            )
+            breakdown = (
+                step_resp.get("score_breakdown")
+                or obs_data.get("score_breakdown")
+                or {}
+            )
 
-    if not done or episode_score == 0.0:
-        episode_score = float(obs_data.get("episode_score") or 0.0)
+    # Post-loop fallback: try both locations
+    if episode_score == 0.0:
+        episode_score = (
+            float(last_resp.get("episode_score") or 0.0)
+            or float(obs_data.get("episode_score") or 0.0)
+        )
+    if not breakdown:
+        breakdown = (
+            last_resp.get("score_breakdown")
+            or obs_data.get("score_breakdown")
+            or {}
+        )
 
-    breakdown = obs_data.get("score_breakdown") or {}
     print(f"  Score: {episode_score:.4f} | Steps: {step}")
 
     return {
