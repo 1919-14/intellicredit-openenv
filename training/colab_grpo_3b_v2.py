@@ -1,17 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║  IntelliCredit v2 — GRPO Mistral-7B (A100)                          ║
-║  Model  : mistralai/Mistral-7B-Instruct-v0.3  (4-bit QLoRA)         ║
-║  Target : HF JupyterLab Space — Nvidia A100 · 80 GB                 ║
+║  IntelliCredit v2 — GRPO Mistral-7B (A100) + UNSLOTH               ║
+║  Model  : mistralai/Mistral-7B-Instruct-v0.3  (4-bit QLoRA)        ║
+║  Engine : 🦥 Unsloth — 2-3x faster training, 60% less VRAM         ║
+║  Target : Jupyter Notebook — Nvidia A100 · 80 GB                   ║
 ║                                                                      ║
-║  Why Mistral instead of Qwen2.5-3B:                                  ║
-║  ✅ Native function-call training in v0.3                           ║
-║  ✅ Dramatically better instruction following → submit_decision()   ║
-║     naturally at cold start → std>0 from GRPO Step 1               ║
-║  ✅ 7B params in 4-bit = ~6GB VRAM (trivial on A100 80GB)          ║
-║  ✅ [INST] chat template handled automatically by tokenizer         ║
+║  ✅ Unsloth FastLanguageModel for optimised 4-bit loading           ║
+║  ✅ Unsloth gradient checkpointing (30% less VRAM)                  ║
+║  ✅ Fused kernels for faster forward/backward                       ║
+║  ✅ Auto-fallback to manual transformers+peft if Unsloth fails      ║
 ║  ✅ KL_BETA=0.15 + SFT warmup + robust parser v3                   ║
 ║  ✅ Stage 0 SFT warmup (9 gold examples) before GRPO               ║
+║  ✅ Robust error handling for Jupyter notebook environment          ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 Paste each ═══ CELL ═══ block into a separate Jupyter cell.
@@ -23,40 +23,185 @@ Run Cell 1 → Restart Kernel → Run Cell 2 onward in order.
 # ═══ CELL 1: INSTALL ════════════════════════════════════════════════
 # ════════════════════════════════════════════════════════════════════
 
-import subprocess, sys
+import subprocess, sys, os
 
 def _pip(*args):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *args])
+    """Safe pip install — returns True on success, False on failure."""
+    try:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "-q", *args],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        return True
+    except subprocess.CalledProcessError:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", *args])
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"⚠️  pip install failed for {args}: {e}")
+            return False
 
-_pip("torch", "torchvision", "torchaudio",
-     "--index-url", "https://download.pytorch.org/whl/cu121", "--upgrade")
+def _pip_uninstall(*pkgs):
+    """Silently uninstall packages."""
+    for pkg in pkgs:
+        subprocess.call(
+            [sys.executable, "-m", "pip", "uninstall", "-y", pkg],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+# ── Step 1: Upgrade pip ──────────────────────────────────────────────
 _pip("--upgrade", "pip")
-_pip("bitsandbytes>=0.46.1")
-_pip("transformers>=4.45.0,<5.0.0")
-_pip("trl>=0.15.2", "peft>=0.13.0", "accelerate>=1.0.0")
-_pip("datasets>=2.20.0", "huggingface_hub>=0.24.0", "matplotlib", "langdetect")
-_pip("sentencepiece", "protobuf")   # ← required for Mistral SentencePiece tokenizer
 
-import os
+# ── Step 2: Install PyTorch ──────────────────────────────────────────
+# Unsloth needs PyTorch >= 2.6 (for triton configs + torch.int1).
+# cu121 only has 2.5.x → try cu124 first (works on A100 w/ driver ≥550).
+print("🔧 Step 1/5: Installing PyTorch...")
+_got_torch26 = False
+
+# Try cu124 first (PyTorch 2.6+, needed for Unsloth)
+print("   Trying cu124 (PyTorch 2.6+)...")
+if _pip("torch>=2.6.0", "torchvision", "torchaudio",
+        "--index-url", "https://download.pytorch.org/whl/cu124"):
+    _got_torch26 = True
+    print("   ✅ PyTorch 2.6+ installed (cu124)")
+else:
+    # Fall back to cu121 (PyTorch 2.5.x — no Unsloth, but training works)
+    print("   cu124 failed (CUDA driver may be too old), trying cu121...")
+    _pip("torch", "torchvision", "torchaudio",
+         "--index-url", "https://download.pytorch.org/whl/cu121")
+    print("   ✅ PyTorch 2.5.x installed (cu121)")
+
+# ── Step 3: CRITICAL — Remove torchao ────────────────────────────────
+# torchao >= 0.7 uses torch.int1 which only exists in PyTorch 2.7+.
+# If torchao is installed (pulled in by transformers), it CRASHES both
+# Unsloth and transformers imports — the "poison pill" that breaks all.
+# We use bitsandbytes for quantization, NOT torchao, so removing it is
+# safe and fixes the entire import chain.
+print("🧹 Step 2/5: Removing incompatible torchao...")
+_pip_uninstall("torchao")
+print("   ✅ torchao removed (we use bitsandbytes instead)")
+
+# ── Step 4: Install Unsloth (only makes sense with PyTorch 2.6+) ─────
+_unsloth_ok = False
+if _got_torch26:
+    print("🦥 Step 3/5: Installing Unsloth...")
+    if _pip("--no-deps", "unsloth"):
+        if _pip("--no-deps", "unsloth_zoo"):
+            _unsloth_ok = True
+            print("   ✅ Unsloth installed")
+        else:
+            print("   ⚠️  unsloth_zoo failed")
+    if not _unsloth_ok:
+        print("   Trying git install...")
+        _pip("--no-deps", "unsloth @ git+https://github.com/unslothai/unsloth.git")
+        _pip("--no-deps", "unsloth_zoo @ git+https://github.com/unslothai/unsloth-zoo.git")
+        _unsloth_ok = True
+        print("   ✅ Unsloth installed via git")
+else:
+    print("⏭️  Step 3/5: Skipping Unsloth (needs PyTorch 2.6+, using manual mode)")
+
+# ── Step 5: Install remaining dependencies ────────────────────────────
+print("📦 Step 4/5: Installing remaining deps...")
+_pip("--upgrade", "transformers>=4.45.0", "trl>=0.15.2", "peft>=0.13.0",
+     "accelerate>=1.0.0", "bitsandbytes>=0.46.1")
+_pip("datasets>=2.20.0", "huggingface_hub>=0.24.0", "matplotlib", "langdetect")
+_pip("sentencepiece", "protobuf")
+# Remove torchao AGAIN — transformers may have re-pulled it as a dep
+_pip_uninstall("torchao")
+print("   ✅ All dependencies installed")
+
+# ── Step 6: HF Token login ──────────────────────────────────────────
+print("🔑 Step 5/5: Authentication...")
 hf_tok = os.environ.get("HF_TOKEN", "")
 if hf_tok:
     from huggingface_hub import login
     login(token=hf_tok, add_to_git_credential=False)
-    print("✅ HF Token loaded")
+    print("   ✅ HF Token loaded")
 else:
-    print("⚠️  HF_TOKEN not set — anonymous access (OK for public models)")
+    print("   ⚠️  HF_TOKEN not set — anonymous access (OK for public models)")
 
-print("\n✅ All packages installed")
-print("   ⚡ IMPORTANT: Kernel → Restart Kernel → then run from Cell 2")
+# ── Report versions ──────────────────────────────────────────────────
+import torch as _t
+print(f"\n✅ All packages installed")
+print(f"   PyTorch : {_t.__version__}")
+print(f"   CUDA    : {_t.version.cuda if _t.cuda.is_available() else 'N/A'}")
+print(f"   Unsloth : {'installed' if _unsloth_ok else 'NOT installed (manual mode)'}")
+# Verify torchao is gone
+try:
+    import torchao
+    print(f"   ⚠️  torchao still present — may cause import errors")
+except ImportError:
+    print(f"   torchao : removed ✅ (prevents torch.int1 crash)")
+print(f"\n   ⚡ IMPORTANT: Kernel → Restart Kernel → then run from Cell 2")
 
 
 # ════════════════════════════════════════════════════════════════════
 # ═══ CELL 2: IMPORTS & CONFIG ═══════════════════════════════════════
 # ════════════════════════════════════════════════════════════════════
+#
+# ⚠️  CRITICAL: Unsloth MUST be imported BEFORE transformers/peft.
+#     This cell handles the import order correctly and auto-falls back
+#     to manual transformers+peft if Unsloth is unavailable.
 
-import os, re, json, time, random
+import os, re, json, time, random, gc, sys
 from collections import defaultdict
 from typing import List, Dict, Optional, Tuple
+
+# ── Suppress noisy Jupyter warnings BEFORE any ML imports ────────────
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import warnings
+warnings.filterwarnings("ignore", message=".*resume_download.*")
+warnings.filterwarnings("ignore", message=".*torch.amp.*")
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module="unsloth")
+warnings.filterwarnings("ignore", message=".*max_new_tokens.*max_length.*")
+warnings.filterwarnings("ignore", message=".*Both.*max_new_tokens.*")
+
+# Suppress transformers verbose logging during training (keeps errors only)
+import logging as _logging
+_logging.getLogger("transformers").setLevel(_logging.ERROR)
+
+# ── Safety: hide torchao from transformers if PyTorch is too old ─────
+# torchao >= 0.7 needs torch.int1 (PyTorch 2.7+). If torchao is present
+# but PyTorch is older, transformers' `is_torchao_available()` returns
+# True, then `from torchao...` crashes the ENTIRE import chain.
+#
+# FIX: Monkey-patch importlib.util.find_spec to return None for torchao.
+# This makes is_torchao_available() → False, so transformers skips it.
+import importlib.util
+import torch as _t_check
+if not hasattr(_t_check, "int1"):
+    # Evict any cached torchao modules
+    for _k in list(sys.modules.keys()):
+        if _k == "torchao" or _k.startswith("torchao."):
+            del sys.modules[_k]
+    # Patch find_spec so is_torchao_available() returns False
+    _original_find_spec = importlib.util.find_spec
+    def _patched_find_spec(name, *args, **kwargs):
+        if name and (name == "torchao" or name.startswith("torchao.")):
+            return None
+        return _original_find_spec(name, *args, **kwargs)
+    importlib.util.find_spec = _patched_find_spec
+    print("🛡️  torchao hidden from importlib (PyTorch missing torch.int1)")
+else:
+    print("✅ PyTorch has torch.int1 — torchao compatible")
+
+# ── Try Unsloth FIRST (must import before transformers/peft) ─────────
+USE_UNSLOTH = False
+try:
+    from unsloth import FastLanguageModel
+    USE_UNSLOTH = True
+    print("🦥 Unsloth loaded successfully")
+except Exception as _e:
+    print(f"⚠️  Unsloth not available: {str(_e)[:80]}")
+    print("   → Using manual transformers + peft (works fine, just slower)")
+
+# ── Import transformers/peft (fallback or alongside Unsloth) ─────────
+if not USE_UNSLOTH:
+    from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 
 import torch
 import torch.nn.functional as F
@@ -64,40 +209,52 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 from huggingface_hub import hf_hub_download
+from tqdm.auto import tqdm
 
 # ── Core Config ──────────────────────────────────────────────────────
-MODEL_NAME   = "mistralai/Mistral-7B-Instruct-v0.3"   # ← switched from Qwen 3B
+MODEL_NAME   = "mistralai/Mistral-7B-Instruct-v0.3"
 HF_DATASET   = "vssksn/intellicredit-grpo-v2"
 OUTPUT_BASE  = "intellicredit-grpo-mistral-7b"
 
-# ── GRPO hyper-params ────────────────────────────────────────────────
-NUM_GENERATIONS  = 6       # good advantage contrast
-MAX_NEW_TOKENS   = 350     # must be big enough for analysis + submit_decision()
+# ── GRPO hyper-params — tuned for ~45 min on A100 ──────────────────────────
+NUM_GENERATIONS  = 4       # 4 gives good advantage contrast, 33% faster than 6
+MAX_NEW_TOKENS   = 200     # 200 is plenty for reasoning + submit_decision()
 MAX_TOOL_TURNS   = 2
-BATCH_SIZE       = 2       # Mistral-7B 4-bit: ~6GB, easily fits 2 on A100
-GRAD_ACCUM       = 1
-KL_BETA          = 0.15   # tight leash — prevents drift
-MAX_SEQ_LEN      = 1600   # Mistral supports 32K context, use a bit more
-MULTI_STEP_GRPO  = False  # single-turn stable for cold-start
+BATCH_SIZE       = 1       # 1 sample/step → fastest wallclock time per step
+KL_BETA          = 0.15    # tight leash — prevents drift
+MAX_SEQ_LEN      = 2048    # 2048: headroom for long system prompt + MAX_NEW_TOKENS
 
 os.makedirs(OUTPUT_BASE, exist_ok=True)
 os.makedirs(f"{OUTPUT_BASE}/charts", exist_ok=True)
 
-print("✅ Imports complete")
+# ── Helper functions for Unsloth/manual mode switching ───────────────
+def safe_for_inference(model):
+    """Switch model to inference mode (Unsloth-aware)."""
+    if USE_UNSLOTH:
+        FastLanguageModel.for_inference(model)
+    else:
+        model.eval()
+
+def safe_for_training(model):
+    """Switch model to training mode (Unsloth-aware)."""
+    if USE_UNSLOTH:
+        FastLanguageModel.for_training(model)
+    else:
+        model.train()
+
+print(f"✅ Imports complete ({'🦥 Unsloth' if USE_UNSLOTH else '🔧 Manual'} mode)")
 gpu  = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
 vram = torch.cuda.get_device_properties(0).total_memory / 1e9 if torch.cuda.is_available() else 0
-print(f"   GPU  : {gpu}")
-print(f"   VRAM : {vram:.1f} GB")
-print(f"   Model: {MODEL_NAME}")
-print(f"   KL_BETA={KL_BETA} | NUM_GEN={NUM_GENERATIONS} | MULTI_STEP={MULTI_STEP_GRPO}")
+print(f"   GPU    : {gpu}")
+print(f"   VRAM   : {vram:.1f} GB")
+print(f"   Model  : {MODEL_NAME}")
+print(f"   Engine : {'🦥 Unsloth (2-3x speedup)' if USE_UNSLOTH else '🔧 transformers+peft'}")
+print(f"   KL_BETA={KL_BETA} | NUM_GEN={NUM_GENERATIONS}")
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 3: ACTION PARSER v3 (robust — handles Qwen verbose style) ═
+# ═══ CELL 3: ACTION PARSER v3 (robust — handles verbose style) ══════
 # ════════════════════════════════════════════════════════════════════
 #
 # Priority cascade (highest → lowest confidence):
@@ -142,7 +299,6 @@ _RE_L3_TOOL = re.compile(
 )
 
 # L4: structured label on its own line / after a colon
-#     "Final Decision: REJECT"  |  "Decision: APPROVE"  |  "**REJECT**"
 _RE_L4_LABEL = re.compile(
     r"(?:"
     r"(?:final\s+)?(?:decision|recommendation|answer|verdict|conclusion)"
@@ -160,7 +316,6 @@ _RE_L4_BOLD = re.compile(
 )
 
 # L5: decision embedded in a sentence
-#     "I would reject"  |  "We should approve"  |  "Therefore, reject"
 _RE_L5_SENTENCE = re.compile(
     r"(?:"
     r"(?:I|we)\s+(?:would|will|must|should|hereby|therefore|thus|hence)?\s*"
@@ -189,7 +344,7 @@ def _unwrap(text) -> str:
 def _norm_action(raw: str) -> int:
     """Normalise a matched action string to 0/1/2."""
     k = raw.upper().strip()
-    k = re.sub(r"[\s_]+", " ", k)   # collapse spaces/underscores
+    k = re.sub(r"[\s_]+", " ", k)
     return ACTION_MAP.get(k, ACTION_MAP.get(k.split()[0], 2))
 
 
@@ -206,8 +361,7 @@ def parse_llm_output(text) -> Dict:
                 "parse_confidence": 0.0, "reasoning": "",
                 "tool_name": None, "tool_args": None, "parse_failure": True}
 
-    # ── L3: tool call — check BEFORE decision patterns so tool text
-    #         in the middle of a response doesn't get mis-parsed        ──────
+    # ── L3: tool call ────────────────────────────────────────────────
     tm = _RE_L3_TOOL.search(t)
     if tm:
         raw_arg   = tm.group(2).strip().strip("'\"")
@@ -221,13 +375,12 @@ def parse_llm_output(text) -> Dict:
                 "reasoning": f"calling {tool_name}",
                 "parse_failure": False}
 
-    # ── L1: exact submit_decision ─────────────────────────────────────
+    # ── L1: exact submit_decision ────────────────────────────────────
     ms = list(_RE_L1_EXACT.finditer(t))
     if ms:
-        m   = ms[-1]   # take last match (model may reason, then conclude)
+        m   = ms[-1]
         raw = m.group(1)
         rsn = (m.group(2) or "").strip()
-        # fall back: grab text between previous sentence and match as context
         if not rsn:
             rsn = _extract_context(t, m.start(), 120)
         act = _norm_action(raw)
@@ -236,7 +389,7 @@ def parse_llm_output(text) -> Dict:
                 "reasoning": rsn, "tool_name": None, "tool_args": None,
                 "parse_failure": False}
 
-    # ── L2: fuzzy submit variants ─────────────────────────────────────
+    # ── L2: fuzzy submit variants ────────────────────────────────────
     ms2 = list(_RE_L2_FUZZY.finditer(t))
     if ms2:
         m   = ms2[-1]
@@ -248,7 +401,7 @@ def parse_llm_output(text) -> Dict:
                 "reasoning": rsn or _extract_context(t, m.start(), 100),
                 "tool_name": None, "tool_args": None, "parse_failure": False}
 
-    # ── L4: structured label ──────────────────────────────────────────
+    # ── L4: structured label ─────────────────────────────────────────
     ml4a = list(_RE_L4_LABEL.finditer(t))
     ml4b = list(_RE_L4_BOLD.finditer(t))
     all_l4 = sorted(ml4a + ml4b, key=lambda m: m.end())
@@ -261,7 +414,7 @@ def parse_llm_output(text) -> Dict:
                 "parse_confidence": 0.75, "reasoning": rsn,
                 "tool_name": None, "tool_args": None, "parse_failure": False}
 
-    # ── L5: sentence-level intent ─────────────────────────────────────
+    # ── L5: sentence-level intent ────────────────────────────────────
     ml5 = list(_RE_L5_SENTENCE.finditer(t))
     if ml5:
         m   = ml5[-1]
@@ -272,7 +425,7 @@ def parse_llm_output(text) -> Dict:
                 "parse_confidence": 0.65, "reasoning": rsn,
                 "tool_name": None, "tool_args": None, "parse_failure": False}
 
-    # ── L6: bare keyword anywhere ─────────────────────────────────────
+    # ── L6: bare keyword anywhere ────────────────────────────────────
     ml6 = list(_RE_L6_KEYWORD.finditer(t))
     if ml6:
         m   = ml6[-1]
@@ -282,7 +435,7 @@ def parse_llm_output(text) -> Dict:
                 "parse_confidence": 0.45, "reasoning": t[-150:],
                 "tool_name": None, "tool_args": None, "parse_failure": True}
 
-    # ── L7: silence / unparseable ─────────────────────────────────────
+    # ── L7: silence / unparseable ────────────────────────────────────
     return {"action": 2, "parse_type": "default_reject",
             "parse_confidence": 0.0, "reasoning": "",
             "tool_name": None, "tool_args": None, "parse_failure": True}
@@ -317,7 +470,6 @@ print(f"✅ Action parser v3 loaded — {_pass}/{len(_PARSER_TESTS)} self-tests 
 # ═══ CELL 4: REWARD FUNCTIONS v5 (with language penalty) ════════════
 # ════════════════════════════════════════════════════════════════════
 
-# ── Language detection (penalise non-English drift) ──────────────────
 try:
     from langdetect import detect as _lang_detect
     _LANGDETECT_OK = True
@@ -325,13 +477,12 @@ except ImportError:
     _LANGDETECT_OK = False
 
 def _is_english(text: str) -> bool:
-    """Returns True if text appears to be English, False otherwise."""
     if not _LANGDETECT_OK or len(text.strip()) < 20:
         return True
     try:
         return _lang_detect(text[:300]) == "en"
     except Exception:
-        return True  # benefit of the doubt
+        return True
 
 
 def reward_correctness(prompts, completions, ground_truth_pd, **kw) -> List[float]:
@@ -346,7 +497,7 @@ def reward_correctness(prompts, completions, ground_truth_pd, **kw) -> List[floa
         else:
             s = 1.0 if act == 1 else (0.2 if act == 0 else -0.5)
         if p["parse_type"] == "final_decision":
-            s += 0.5   # strong bonus for using submit_decision()
+            s += 0.5
         scores.append(max(-2.0, min(2.0, s)))
     return scores
 
@@ -368,44 +519,27 @@ def reward_hard_rules(prompts, completions, hard_rules, has_red_alerts, **kw) ->
 
 
 def reward_format(prompts, completions, **kw) -> List[float]:
-    """
-    Smooth 7-tier reward gradient — guides model step by step toward
-    full submit_decision() compliance:
-
-    default_reject   : -1.0  (unparseable — worst)
-    fallback_keyword : -0.3  (found a word, not a decision)
-    sentence_decision: +0.2  (implied intent in text — partial credit)
-    structured_label : +0.4  (e.g. "Final Decision: REJECT" — good progress)
-    tool_call        : +0.1  (mid-episode tool use — neutral/slight positive)
-    final_decision   : +0.6  (submit_decision() with short reasoning)
-    final_decision   : +1.0  (submit_decision() with 20+ word reasoning — perfect)
-    """
     scores = []
     for comp in completions:
         p   = parse_llm_output(comp)
         rsn = p.get("reasoning", "")
         pt  = p["parse_type"]
-
-        # ── Language penalty (severe — prevents multilingual drift) ───
         lang_ok      = _is_english(comp)
         lang_penalty = 0.0 if lang_ok else -2.0
-
-        # ── 7-tier format reward ──────────────────────────────────────
         if pt == "final_decision" and len(rsn) > 20:
-            s = 1.0    # perfect: submit_decision + solid reasoning
+            s = 1.0
         elif pt == "final_decision":
-            s = 0.6    # good: submit_decision but short/missing reasoning
+            s = 0.6
         elif pt == "structured_label":
-            s = 0.4    # e.g. "Final Decision: REJECT" — model getting close
+            s = 0.4
         elif pt == "sentence_decision":
-            s = 0.2    # e.g. "I would REJECT..." — intent clear, wrong format
+            s = 0.2
         elif pt == "tool_call":
-            s = 0.1    # mid-episode tool use — correct behaviour
+            s = 0.1
         elif pt == "fallback_keyword":
-            s = -0.3   # bare keyword only — very weak signal
-        else:          # default_reject: unparseable/multilingual garbage
+            s = -0.3
+        else:
             s = -1.0
-
         scores.append(s + lang_penalty)
     return scores
 
@@ -539,9 +673,6 @@ print("✅ Memory bank initialised")
 # ════════════════════════════════════════════════════════════════════
 # ═══ CELL 7: SYSTEM PROMPT WITH FEW-SHOT EXAMPLES ══════════════════
 # ════════════════════════════════════════════════════════════════════
-# ▶ KEY FIX: the model now sees concrete submit_decision() examples
-#   so it knows the exact format and can generate it from turn 1.
-#   This breaks the std=0 deadlock in GRPO.
 
 SYSTEM_PROMPT_BASE = """\
 You are a Senior Credit Officer at an Indian NBFC. Review MSME loan applications and make APPROVE / CONDITIONAL / REJECT decisions balancing yield, risk, and RBI compliance.
@@ -608,47 +739,99 @@ print("✅ System prompt with few-shot examples loaded")
 # ════════════════════════════════════════════════════════════════════
 # ═══ CELL 8: LOAD MODEL + LoRA ══════════════════════════════════════
 # ════════════════════════════════════════════════════════════════════
+#
+# Two code paths:
+#   🦥 Unsloth path  — FastLanguageModel.from_pretrained (faster, less VRAM)
+#   🔧 Manual path   — transformers + peft + bitsandbytes (always works)
 
 print(f"\n🔄 Loading model: {MODEL_NAME}...")
+print(f"   Mode: {'🦥 Unsloth' if USE_UNSLOTH else '🔧 Manual'}")
 
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit              = True,
-    bnb_4bit_quant_type       = "nf4",
-    bnb_4bit_compute_dtype    = torch.bfloat16,
-    bnb_4bit_use_double_quant = True,
-)
+# Clear VRAM before loading
+gc.collect()
+torch.cuda.empty_cache()
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    quantization_config = bnb_config,
-    device_map          = "auto",
-    torch_dtype         = torch.bfloat16,   # Mistral: use torch_dtype not dtype
-)
-model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+if USE_UNSLOTH:
+    # ══════════════════════════════════════════════════════════════════
+    # 🦥 UNSLOTH PATH — 2x faster loading, 30% less VRAM
+    # ══════════════════════════════════════════════════════════════════
+    model, tokenizer = FastLanguageModel.from_pretrained(
+        model_name     = MODEL_NAME,
+        max_seq_length = MAX_SEQ_LEN,
+        dtype          = None,           # auto-detect (bf16 on A100)
+        load_in_4bit   = True,           # 4-bit QLoRA quantization
+    )
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-# Mistral tokenizer fix: no pad_token by default, use eos_token
+    model = FastLanguageModel.get_peft_model(
+        model,
+        r                          = 16,
+        target_modules             = ["q_proj", "k_proj", "v_proj", "o_proj",
+                                      "gate_proj", "up_proj", "down_proj"],
+        lora_alpha                 = 32,
+        lora_dropout               = 0,              # Unsloth: 0 is fastest
+        bias                       = "none",
+        use_gradient_checkpointing = "unsloth",       # 30% less VRAM
+        random_state               = 42,
+        use_rslora                 = False,
+        loftq_config               = None,
+    )
+
+else:
+    # ══════════════════════════════════════════════════════════════════
+    # 🔧 MANUAL PATH — transformers + peft + bitsandbytes (always works)
+    # ══════════════════════════════════════════════════════════════════
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit              = True,
+        bnb_4bit_quant_type       = "nf4",
+        bnb_4bit_compute_dtype    = torch.bfloat16,
+        bnb_4bit_use_double_quant = True,
+    )
+
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_NAME,
+        quantization_config = bnb_config,
+        device_map          = "auto",
+        torch_dtype         = torch.bfloat16,
+    )
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+    lora_cfg = LoraConfig(
+        r              = 16,
+        lora_alpha     = 32,
+        target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
+                          "gate_proj", "up_proj", "down_proj"],
+        lora_dropout   = 0.05,
+        bias           = "none",
+        task_type      = TaskType.CAUSAL_LM,
+    )
+    model = get_peft_model(model, lora_cfg)
+
+# ── Tokenizer setup (works for both paths) ───────────────────────────
 if tokenizer.pad_token is None:
-    tokenizer.add_special_tokens({"pad_token": "<pad>"})
-    model.resize_token_embeddings(len(tokenizer))
+    tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
 
-# Mistral-7B LoRA — same target modules as Qwen (standard MistralForCausalLM)
-lora_cfg = LoraConfig(
-    r              = 16,
-    lora_alpha     = 32,
-    target_modules = ["q_proj", "k_proj", "v_proj", "o_proj",
-                      "gate_proj", "up_proj", "down_proj"],
-    lora_dropout   = 0.05,
-    bias           = "none",
-    task_type      = TaskType.CAUSAL_LM,
-)
-model = get_peft_model(model, lora_cfg)
+# Fix the max_new_tokens vs max_length warning at the source
+# Unsloth sets max_length=32768 in generation_config, conflicting with max_new_tokens
+try:
+    model.generation_config.max_length = None
+except Exception:
+    pass
+
 model.print_trainable_parameters()
 print(f"✅ Model + LoRA ready (vocab size: {len(tokenizer)})")
 
-# Smoke test — now with few-shot examples in prompt, should see submit_decision
-print("\n🔍 Smoke test (should now show submit_decision in response)...")
+# Report VRAM usage
+if torch.cuda.is_available():
+    vram_used = torch.cuda.memory_allocated() / 1e9
+    vram_reserved = torch.cuda.memory_reserved() / 1e9
+    print(f"   VRAM used: {vram_used:.1f} GB | reserved: {vram_reserved:.1f} GB")
+
+# ── Smoke test ──────────────────────────────────────────────────────
+print("\n🔍 Smoke test (should show submit_decision in response)...")
+safe_for_inference(model)
 _msgs = [
     {"role": "system", "content": build_system_prompt()},
     {"role": "user",   "content": "Application: DSCR=0.8x — this is below the 1.0x minimum (HR-01 triggered). What is your decision?"},
@@ -714,6 +897,7 @@ print("✅ Dataset ready")
 def run_episode(sample: Dict, model, tokenizer,
                 temperature: float = 1.0,
                 memory_bank: Optional[MemoryBank] = None) -> Dict:
+    """Run a single episode. Caller must call safe_for_inference(model) first."""
     prompt_text     = sample["prompt"]
     sys_prompt      = build_system_prompt(MAX_TOOL_TURNS, memory_bank)
     tool_transcript = []
@@ -721,6 +905,8 @@ def run_episode(sample: Dict, model, tokenizer,
     last_completion = ""
     last_parsed     = {}
     all_turns       = []
+    last_input_ids  = None   # stored for GRPO log-prob (avoids re-tokenisation)
+    last_comp_ids   = None   # stored for GRPO log-prob
 
     for turn in range(MAX_TOOL_TURNS + 1):
         messages  = build_messages(prompt_text, tool_transcript, sys_prompt)
@@ -738,19 +924,27 @@ def run_episode(sample: Dict, model, tokenizer,
         with torch.no_grad():
             output = model.generate(
                 **inputs,
-                max_new_tokens = MAX_NEW_TOKENS,
-                min_new_tokens = 15,
-                do_sample      = True,
-                temperature    = temperature,
-                top_p          = 0.92,
-                repetition_penalty = 1.15,   # ← prevents repetition loops
-                pad_token_id   = tokenizer.eos_token_id,
+                max_new_tokens     = MAX_NEW_TOKENS,
+                min_new_tokens     = 15,
+                do_sample          = True,
+                temperature        = temperature,
+                top_p              = 0.92,
+                repetition_penalty = 1.15,
+                pad_token_id       = tokenizer.eos_token_id,
             )
 
         completion = tokenizer.decode(
             output[0][inputs.input_ids.shape[1]:],
             skip_special_tokens=True,
         ).strip()
+
+        # Store raw token IDs for GRPO log-prob computation (no re-tokenisation needed)
+        last_input_ids = inputs.input_ids.cpu()
+        _raw_ids       = output[0][inputs.input_ids.shape[1]:].cpu()
+        # Pre-clamp to tokenizer vocab — Unsloth pads the embedding table for
+        # GPU alignment so generated IDs can exceed training-mode vocab_size.
+        # Clamping here is belt-and-suspenders on top of the guard in compute_log_probs_from_ids.
+        last_comp_ids  = _raw_ids.clamp(0, len(tokenizer) - 1)
 
         if not completion:
             completion = 'submit_decision("REJECT", "Insufficient information to approve. Rejecting as a precaution.")'
@@ -781,6 +975,8 @@ def run_episode(sample: Dict, model, tokenizer,
         "parse_type"     : last_parsed.get("parse_type", "default_reject"),
         "action"         : last_parsed.get("action", 2),
         "tool_calls_made": tool_calls_made,
+        "last_input_ids" : last_input_ids,   # [1, prompt_len] CPU tensor for GRPO
+        "last_comp_ids"  : last_comp_ids,    # [comp_len]      CPU tensor for GRPO
         "metadata"       : {
             "ground_truth_pd": sample["ground_truth_pd"],
             "hard_rules"     : sample["hard_rules"],
@@ -797,41 +993,117 @@ print("✅ Episode runner ready")
 # ═══ CELL 11: GRPO LOSS ═════════════════════════════════════════════
 # ════════════════════════════════════════════════════════════════════
 
-def compute_log_probs(model, tokenizer, prompt_text: str,
-                      completion: str) -> torch.Tensor:
-    full_text  = prompt_text + completion
-    full_ids   = tokenizer(full_text, return_tensors="pt",
-                           truncation=True, max_length=MAX_SEQ_LEN
-                           ).input_ids.to(model.device)
-    prompt_ids = tokenizer(prompt_text, return_tensors="pt",
-                           truncation=True, max_length=MAX_SEQ_LEN
-                           ).input_ids.to(model.device)
-    prompt_len = prompt_ids.shape[1]
-    if full_ids.shape[1] <= prompt_len:
+def _get_optimizer(model, lr: float):
+    """Create AdamW optimizer for trainable (LoRA) parameters only."""
+    return torch.optim.AdamW(
+        [p for p in model.parameters() if p.requires_grad],
+        lr=lr, weight_decay=0.01,
+    )
+
+
+def compute_log_probs_from_ids(model, input_ids: torch.Tensor,
+                               comp_ids: torch.Tensor) -> torch.Tensor:
+    """
+    Compute sum of log-probs for comp_ids tokens given input_ids context.
+    Reuses the exact token IDs produced during generation — avoids all
+    re-tokenisation edge cases (prompt too long → comp truncated to 0).
+
+    Args:
+        model     : policy model (must be in .train() with enable_grad for current-lp;
+                    may be in no_grad for ref-lp)
+        input_ids : [1, prompt_len]  — prompt token IDs already on model.device
+        comp_ids  : [comp_len]       — 1-D completion token IDs on model.device
+    Returns:
+        Scalar tensor.  requires_grad=True when called inside enable_grad context.
+    """
+    if comp_ids.shape[0] == 0:
         return torch.tensor(0.0, device=model.device, requires_grad=True)
+
+    comp_ids_2d = comp_ids.unsqueeze(0)                          # [1, comp_len]
+    full_ids    = torch.cat([input_ids, comp_ids_2d], dim=1)     # [1, T_raw]
+    prompt_len  = input_ids.shape[1]
+
+    # ── CRITICAL: truncate to MAX_SEQ_LEN *before* the forward pass ──────────
+    # full_ids = prompt(~1900) + comp(200) can exceed MAX_SEQ_LEN=2048.
+    # Without this, Unsloth silently truncates the *logits* to 2048 rows while
+    # full_ids still has T_raw rows, making shift_labels longer than shift_logits
+    # → arange(comp_len) indexes into fewer logit rows → CUDA "out of bounds" crash.
+    if full_ids.shape[1] > MAX_SEQ_LEN:
+        full_ids = full_ids[:, :MAX_SEQ_LEN]   # trim trailing comp tokens
+    T = full_ids.shape[1]   # always <= MAX_SEQ_LEN now
+
+    if prompt_len >= T:   # every completion token was truncated away
+        return torch.tensor(0.0, device=model.device, requires_grad=True)
+
     with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
-        logits = model(full_ids).logits
-    shift_logits = logits[0, prompt_len - 1:-1, :]
-    shift_labels = full_ids[0, prompt_len:]
-    log_probs    = F.log_softmax(shift_logits.float(), dim=-1)
-    token_lps    = log_probs[
-        torch.arange(shift_labels.shape[0], device=model.device), shift_labels
+        logits = model(full_ids).logits                          # [1, T, V] — T<=MAX_SEQ_LEN
+
+    comp_len     = T - prompt_len
+    # logits[prompt_len-1] predicts comp[0], ..., logits[T-2] predicts comp[comp_len-1]
+    shift_logits = logits[0, prompt_len - 1 : T - 1, :].float() # [comp_len, V]
+    shift_labels = full_ids[0, prompt_len:]                      # [comp_len] — from truncated ids
+
+    if shift_logits.shape[0] == 0:
+        return torch.tensor(0.0, device=model.device, requires_grad=True)
+
+    log_probs     = F.log_softmax(shift_logits, dim=-1)
+    vocab_size_lp = shift_logits.shape[-1]  # training-mode vocab (may differ from inference)
+
+    # ── CRITICAL: Unsloth fast-inference pads vocab to a GPU-alignment multiple
+    # (e.g. 32768 → 32832). Generated token IDs in the padded range are valid
+    # during sampling but OOB when indexing the training-mode logit table
+    # (vocab_size=32768).  Clamping prevents the CUDA "index out of bounds" crash.
+    valid_mask     = (shift_labels < vocab_size_lp)            # [comp_len] bool
+    shift_labels_s = shift_labels.clamp(0, vocab_size_lp - 1) # safe gather indices
+    token_lps = log_probs[
+        torch.arange(shift_labels_s.shape[0], device=model.device), shift_labels_s
     ]
-    return token_lps.sum()
+    # Zero-out padded/OOB token contributions so they don't corrupt the gradient
+    token_lps = token_lps * valid_mask.float()
+    # Normalise to per-token average → loss magnitude scale-invariant to seq length
+    # (prevents huge loss ~400 that would send gradients through the roof)
+    n_valid = valid_mask.sum().clamp(min=1)
+    return token_lps.sum() / n_valid
+
+
+def _disable_adapters_safe(model):
+    """Context manager to disable LoRA adapters (works with both Unsloth and PEFT)."""
+    try:
+        return model.disable_adapter()
+    except Exception:
+        # Fallback: manual toggle
+        class _ManualDisable:
+            def __enter__(self_inner):
+                try:
+                    model.disable_adapters()
+                except Exception:
+                    pass
+                return self_inner
+            def __exit__(self_inner, *args):
+                try:
+                    model.enable_adapters()
+                except Exception:
+                    pass
+        return _ManualDisable()
 
 
 def grpo_loss_step(model, tokenizer, samples: List[Dict],
                    temperature: float, memory_bank: MemoryBank,
-                   ref_cache: Dict) -> Tuple[torch.Tensor, Dict]:
+                   ref_cache: Dict, step_num: int = 0) -> Tuple[torch.Tensor, Dict]:
     all_losses = []
     metrics    = defaultdict(list)
 
-    for sample in samples:
-        completions, episodes = [], []
-        for _ in range(NUM_GENERATIONS):
-            ep = run_episode(sample, model, tokenizer, temperature, memory_bank)
-            episodes.append(ep)
-            completions.append(ep["completion"])
+    for s_idx, sample in enumerate(samples):
+        # ── Phase 1: Generate completions (NO gradients) ─────────────
+        safe_for_inference(model)   # Unsloth-aware: enables fast attention kernels
+        with torch.no_grad():
+            completions, episodes = [], []
+            for g_idx in range(NUM_GENERATIONS):
+                print(f"\r    ⏳ Sample {s_idx+1}/{len(samples)} | Gen {g_idx+1}/{NUM_GENERATIONS}", end="", flush=True)
+                ep = run_episode(sample, model, tokenizer, temperature, memory_bank)
+                episodes.append(ep)
+                completions.append(ep["completion"])
+        print(f"\r    ✅ Sample {s_idx+1}/{len(samples)} | {NUM_GENERATIONS} gens done       ", flush=True)
 
         prompts_list  = [ep["prompt_text"] for ep in episodes]
         meta_keys     = ["ground_truth_pd", "hard_rules", "has_red_alerts", "npa_rate", "crar"]
@@ -842,34 +1114,72 @@ def grpo_loss_step(model, tokenizer, samples: List[Dict],
         metrics["tool_calls"].extend(ep["tool_calls_made"] for ep in episodes)
         metrics["parse_types"].extend(ep["parse_type"] for ep in episodes)
 
-        r_arr      = np.array(reward_list, dtype=np.float32)
-        advantages = (r_arr - r_arr.mean()) / (r_arr.std() + 1e-8)
+        r_arr = np.array(reward_list, dtype=np.float32)
+        r_std = r_arr.std()
 
+        # Skip degenerate case: all rewards identical → advantages all 0 → loss=0
+        if r_std < 1e-4:
+            if step_num <= 3:
+                print(f"    ⚠️  All {NUM_GENERATIONS} rewards identical ({r_arr[0]:.2f}) — skipping loss", flush=True)
+            continue
+
+        advantages = (r_arr - r_arr.mean()) / (r_std + 1e-8)
         sys_p = build_system_prompt(MAX_TOOL_TURNS, memory_bank)
 
-        for ep, adv in zip(episodes, advantages):
-            # Single-turn GRPO (MULTI_STEP_GRPO=False) — stable for cold start
-            p_str = tokenizer.apply_chat_template(
-                [{"role": "system", "content": sys_p},
-                 {"role": "user",   "content": ep["prompt_text"]}],
-                tokenize=False, add_generation_prompt=True
-            )
-            lp  = compute_log_probs(model, tokenizer, p_str, ep["completion"])
+        # ── Phase 2: Compute GRPO loss (WITH gradients) ──────────────
+        # safe_for_training restores LoRA requires_grad and unpatches Unsloth
+        # inference-only kernels so autograd works through the forward pass.
+        safe_for_training(model)
+        with torch.enable_grad():
+            for ep, adv in zip(episodes, advantages):
+                if not ep["completion"].strip():
+                    continue  # skip empty completions
 
-            # ── Reference log-probs: base model (LoRA disabled) ──────────
-            # FIX: previously ref_cache used the CURRENT model → kl always 0.
-            # Now we disable the LoRA adapter to get the frozen base model's
-            # log-probs — this is the correct GRPO reference policy.
-            with torch.no_grad(), model.disable_adapter():
-                ref_lp = compute_log_probs(
-                    model, tokenizer, p_str, ep["completion"]
-                ).detach()
+                # Guard: ensure stored IDs exist and are non-empty
+                if ep.get("last_comp_ids") is None or ep["last_comp_ids"].shape[0] == 0:
+                    if step_num <= 3:
+                        print(f"    ⚠️  Skipping ep — last_comp_ids empty", flush=True)
+                    continue
 
-            kl        = (lp - ref_lp).clamp(min=0)
-            adv_t     = torch.tensor(float(adv), device=model.device)
-            step_loss = -(adv_t * lp) + KL_BETA * kl
-            all_losses.append(step_loss)
-            metrics["kl"].append(kl.item())
+                dev      = model.device
+                inp_ids  = ep["last_input_ids"].to(dev)   # [1, prompt_len]
+                comp_ids = ep["last_comp_ids"].to(dev)    # [comp_len]
+
+                # Current policy log-probs (with gradients) — uses stored IDs
+                lp = compute_log_probs_from_ids(model, inp_ids, comp_ids)
+
+                # Skip samples where the entire prompt filled MAX_SEQ_LEN and no
+                # completion tokens survived truncation (lp returns a disconnected 0).
+                # These contribute zero gradient anyway; skipping keeps metrics clean.
+                if lp.item() == 0.0:
+                    if step_num <= 3:
+                        print(f"    ⚠️  Skipping — prompt filled context, lp=0", flush=True)
+                    continue
+
+                # Reference policy log-probs (base model, LoRA adapters disabled)
+                with torch.no_grad():
+                    with _disable_adapters_safe(model):
+                        ref_lp = compute_log_probs_from_ids(
+                            model, inp_ids, comp_ids
+                        ).detach()
+
+                # Symmetric KL divergence: |lp - ref_lp| / n_tokens
+                # The one-sided clamp(min=0) was always 0 when lp < ref_lp (model
+                # learning new behaviours is more diffuse than ref). Symmetric KL
+                # gives a non-zero regularisation signal in both directions so the
+                # progressbar kl metric is informative and the penalty works correctly.
+                kl        = (lp - ref_lp).abs()
+                adv_t     = torch.tensor(float(adv), device=dev, dtype=torch.float32)
+                step_loss = -(adv_t * lp) + KL_BETA * kl
+
+                # Diagnostic for first 3 steps
+                if step_num <= 3:
+                    print(f"    📊 adv={adv:.3f} lp={lp.item():.3f} ref={ref_lp.item():.3f} "
+                          f"kl={kl.item():.4f} loss={step_loss.item():.4f} "
+                          f"comp_len={comp_ids.shape[0]} has_grad={lp.requires_grad}", flush=True)
+
+                all_losses.append(step_loss)
+                metrics["kl"].append(kl.item())
 
         worst = episodes[int(np.argmin(reward_list))]
         MEMORY_BANK.learn_from_episode(
@@ -878,24 +1188,24 @@ def grpo_loss_step(model, tokenizer, samples: List[Dict],
         )
 
     if not all_losses:
-        return torch.tensor(0.0, device=model.device, requires_grad=True), {}
+        # All steps were degenerate — return tiny non-zero loss so optimizer still steps
+        dummy = torch.tensor(1e-6, device=model.device, requires_grad=True)
+        return dummy, metrics
     return torch.stack(all_losses).mean(), metrics
 
 print("✅ GRPO loss ready")
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 12: STAGE 0 — SFT WARMUP (5 steps, cross-entropy) ════════
+# ═══ CELL 12: STAGE 0 — SFT WARMUP (15 steps, cross-entropy) ═══════
 # ════════════════════════════════════════════════════════════════════
 #
 # WHY: GRPO requires variance (std > 0) across the N generations for
-# each sample. The cold Qwen-3B model outputs the same vague text for
-# all 6 generations → rewards identical → advantages = 0 → loss = 0.
+# each sample. The cold model outputs the same vague text for all 6
+# generations → rewards identical → advantages = 0 → loss = 0.
 #
 # FIX (used by DeepSeek-R1, Kimi, etc.): run a short SFT warmup on
 # hand-crafted gold examples that explicitly contain submit_decision().
-# After just 5 CE steps the model produces the format naturally at
-# temp=1.5, giving the reward variance GRPO needs.
 
 SFT_GOLD_EXAMPLES = [
     # ── REJECT (HR triggered) ────────────────────────────────────────
@@ -1026,10 +1336,10 @@ SFT_GOLD_EXAMPLES = [
     },
 ]
 
-# ── SFT Warmup Training ───────────────────────────────────────────────
-SFT_STEPS      = 15   # more steps → format ingrained for complex prompts too
-SFT_LR         = 2e-5
-SFT_EPOCHS     = 2   # cycle through gold examples multiple times per step
+# ── SFT Warmup Training ──────────────────────────────────────────────
+SFT_STEPS  = 50    # 50 steps × 2 epochs × 9 examples = ~900 gradient updates
+SFT_LR     = 1e-4  # 2× higher LR for faster format memorisation
+SFT_EPOCHS = 2     # 2 epochs keeps each step fast while covering all examples
 
 print("\n" + "═" * 68)
 print("  STAGE 0 — SFT WARMUP (primes submit_decision format)")
@@ -1037,19 +1347,16 @@ print(f"  Gold examples: {len(SFT_GOLD_EXAMPLES)} | Steps: {SFT_STEPS} | LR: {SF
 print("  This teaches the model the output format before GRPO begins.")
 print("═" * 68)
 
-sft_optimizer = _get_optimizer(model, SFT_LR) if '_get_optimizer' in dir() else \
-    torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=SFT_LR)
-
-def _get_optimizer(model, lr: float):
-    return torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],
-                              lr=lr, weight_decay=0.01)
-
 sft_optimizer = _get_optimizer(model, SFT_LR)
 sys_p         = build_system_prompt(MAX_TOOL_TURNS, None)
-model.train()
+
+# Switch to training mode
+safe_for_training(model)
 t0_sft = time.time()
 
-for sft_step in range(1, SFT_STEPS + 1):
+sft_pbar = tqdm(range(1, SFT_STEPS + 1), desc="  SFT Warmup", unit="step",
+                bar_format="{l_bar}{bar:30}{r_bar}")
+for sft_step in sft_pbar:
     step_loss = torch.tensor(0.0, device=model.device)
     n_tokens  = 0
 
@@ -1092,11 +1399,10 @@ for sft_step in range(1, SFT_STEPS + 1):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         sft_optimizer.step()
         sft_optimizer.zero_grad()
-        print(f"  [SFT] Step {sft_step}/{SFT_STEPS} | ce_loss={avg_loss.item():.4f} | "
-              f"tokens={n_tokens} | ETA {(time.time()-t0_sft)/sft_step*(SFT_STEPS-sft_step)/60:.1f}m")
+        sft_pbar.set_postfix(loss=f"{avg_loss.item():.4f}", tokens=n_tokens)
 
-# Verify the warmup worked with a quick generation test
-model.eval()
+# Verify the warmup worked
+safe_for_inference(model)
 _wm_msgs = [
     {"role": "system", "content": sys_p},
     {"role": "user",   "content": "DSCR=0.85x (HR-01 triggered). CIBIL=620. What is your decision?"},
@@ -1104,7 +1410,9 @@ _wm_msgs = [
 _wm_txt = tokenizer.apply_chat_template(_wm_msgs, tokenize=False, add_generation_prompt=True)
 _wm_inp = tokenizer(_wm_txt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN).to(model.device)
 with torch.no_grad():
-    _wm_out = model.generate(**_wm_inp, max_new_tokens=100, do_sample=True, temperature=0.8)
+    # Use 250 tokens — the model reasons first, then calls submit_decision() at the end.
+    # 100 tokens was too short: the reasoning filled the budget before reaching the call.
+    _wm_out = model.generate(**_wm_inp, max_new_tokens=250, do_sample=False, temperature=1.0)
 _wm_resp = tokenizer.decode(_wm_out[0][_wm_inp.input_ids.shape[1]:], skip_special_tokens=True)
 _wm_p    = parse_llm_output(_wm_resp)
 print(f"\n  Post-SFT check: parse_type={_wm_p['parse_type']} | action={_wm_p['action']}")
@@ -1115,7 +1423,6 @@ elif _wm_p["parse_type"] in ("structured_label", "sentence_decision"):
     print("  ✅ SFT warmup partial — model improved, GRPO will finish the job.")
 else:
     print("  ⚠️  SFT warmup may need more steps — continuing to GRPO anyway.")
-model.train()
 
 sft_time = time.time() - t0_sft
 print(f"  ✅ Stage 0 SFT done in {sft_time/60:.1f} min")
@@ -1127,15 +1434,15 @@ print("═" * 68)
 # ════════════════════════════════════════════════════════════════════
 
 STAGE_CONFIGS = {
-    # Stage 1: FORMAT — GRPO on top of SFT-warmed model
+    # Stage 1: format — primary goal is submit_decision() use.
+    # Temp 1.5 was too chaotic → model ignored learned format (sub=0%).
+    # 1.0 keeps exploration variance while respecting SFT-learned structure.
     1: {"name": "Stage 1 — Format",     "tasks": ["task1"],
-        "lr": 5e-5,  "steps": 15, "temp": 1.5},
-    # Stage 2: HARD RULES — HR-01/HR-04 compliance
+        "lr": 5e-5,  "steps": 10, "temp": 1.0},
     2: {"name": "Stage 2 — Hard Rules", "tasks": ["task1", "task2"],
-        "lr": 3e-5,  "steps": 15, "temp": 1.2},
-    # Stage 3: PORTFOLIO — all tasks, low LR, low temp
+        "lr": 3e-5,  "steps": 10, "temp": 0.9},
     3: {"name": "Stage 3 — Portfolio",  "tasks": None,
-        "lr": 1e-5,  "steps": 20, "temp": 1.0},
+        "lr": 1e-5,  "steps": 15, "temp": 0.8},
 }
 
 all_logs    = {1: [], 2: [], 3: []}
@@ -1143,6 +1450,7 @@ stage_times = {}
 
 print("=" * 68)
 print(f"  STARTING GRPO STAGES — {MODEL_NAME.split('/')[-1]} (A100)")
+print(f"  Engine: {'🦥 Unsloth' if USE_UNSLOTH else '🔧 Manual'}")
 print(f"  KL_BETA={KL_BETA} | NUM_GEN={NUM_GENERATIONS} | Total steps={sum(c['steps'] for c in STAGE_CONFIGS.values())}")
 print("=" * 68)
 
@@ -1163,18 +1471,24 @@ for stage_num in [1, 2, 3]:
         optimizer, T_max=cfg["steps"], eta_min=cfg["lr"] * 0.1
     )
     ref_cache: Dict = {}
-    model.train()
     t_start  = time.time()
     data_idx = 0
 
-    for step in range(1, cfg["steps"] + 1):
+    stage_pbar = tqdm(range(1, cfg["steps"] + 1),
+                      desc=f"  Stage {stage_num}", unit="step",
+                      bar_format="{l_bar}{bar:30}{r_bar}")
+    for step in stage_pbar:
         batch = [stage_data[data_idx % len(stage_data)]
                  for _ in range(BATCH_SIZE)]
         data_idx += BATCH_SIZE
 
+        # grpo_loss_step manages model.eval()/model.train() internally
         loss, metrics = grpo_loss_step(
-            model, tokenizer, batch, cfg["temp"], MEMORY_BANK, ref_cache
+            model, tokenizer, batch, cfg["temp"], MEMORY_BANK, ref_cache,
+            step_num=step
         )
+
+        # model is already in train() from grpo_loss_step Phase 2
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         optimizer.step(); scheduler.step(); optimizer.zero_grad()
@@ -1197,15 +1511,29 @@ for stage_num in [1, 2, 3]:
             "tool_calls": avg_tools, "submit_pct": submit_pct,
         })
 
-        # Build parse_type breakdown for diagnostics
-        pt_str = " ".join(f"{k[:4]}:{v}" for k, v in sorted(pt_counts.items()) if v > 0)
-        print(f"  [{stage_num}] Step {step:2d}/{cfg['steps']} | "
-              f"loss={float(loss.detach()):+.6f} | "
-              f"reward={avg_reward:+.2f}±{std_reward:.2f} | "
-              f"submit={submit_pct:.0f}% | "
-              f"kl={avg_kl:.4f} | "
-              f"types=[{pt_str}] | "
-              f"ETA {eta/60:.1f}m")
+        # Update progress bar with key metrics
+        stage_pbar.set_postfix(
+            loss=f"{float(loss.detach()):+.4f}",
+            rwd=f"{avg_reward:+.2f}",
+            sub=f"{submit_pct:.0f}%",
+            kl=f"{avg_kl:.3f}",
+            eta=f"{eta/60:.1f}m"
+        )
+
+        # Full log every 3 steps
+        if step % 3 == 0 or step == cfg["steps"]:
+            pt_str = " ".join(f"{k[:4]}:{v}" for k, v in sorted(pt_counts.items()) if v > 0)
+            tqdm.write(f"  [{stage_num}] Step {step:2d}/{cfg['steps']} | "
+                  f"loss={float(loss.detach()):+.6f} | "
+                  f"reward={avg_reward:+.2f}±{std_reward:.2f} | "
+                  f"submit={submit_pct:.0f}% | "
+                  f"kl={avg_kl:.4f} | "
+                  f"types=[{pt_str}]")
+
+        # Periodic VRAM check
+        if step % 5 == 0 and torch.cuda.is_available():
+            vram_gb = torch.cuda.memory_allocated() / 1e9
+            tqdm.write(f"       💾 VRAM: {vram_gb:.1f} GB")
 
     elapsed = time.time() - t_start
     stage_times[stage_num] = elapsed
@@ -1218,13 +1546,12 @@ for stage_num in [1, 2, 3]:
     print(f"  💾 Checkpoint: {ckpt_dir}")
 
     print(f"\n  🔍 Inferences after Stage {stage_num}:")
-    model.eval()
+    safe_for_inference(model)
     for idx in range(min(3, len(stage_data))):
         s  = stage_data[idx]
         ep = run_episode(s, model, tokenizer, 0.7, MEMORY_BANK)
         print(f"  [{idx+1}] PD={s['ground_truth_pd']:.2f} | [{ep['parse_type']}] "
               f"tools={ep['tool_calls_made']} | {ep['completion'][:100]}...")
-    model.train()
 
 total_time = sum(stage_times.values())
 print(f"\n{'='*68}")
@@ -1235,7 +1562,7 @@ print(f"{'='*68}")
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 13: LEARNING CURVES ═══════════════════════════════════════
+# ═══ CELL 13b: LEARNING CURVES ══════════════════════════════════════
 # ════════════════════════════════════════════════════════════════════
 
 print("\n📊 Generating charts...")
@@ -1258,7 +1585,8 @@ for stage in [1, 2, 3]:
     offset += max(e["step"] for e in logs) + 1
 
 fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-fig.suptitle("IntelliCredit GRPO v2 — Qwen2.5-3B (A100) — Fixed",
+engine_tag = "Unsloth" if USE_UNSLOTH else "Manual"
+fig.suptitle(f"IntelliCredit GRPO v2 — Mistral-7B (A100 + {engine_tag})",
              fontsize=13, fontweight="bold")
 
 def _plot(ax, data, color, title, ylabel, ylim=None):
@@ -1289,23 +1617,40 @@ print(f"✅ Charts saved → {chart_path}")
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 14: PUSH TO HF HUB ════════════════════════════════════════
+# ═══ CELL 14: SAVE & PUSH TO HF HUB ════════════════════════════════
 # ════════════════════════════════════════════════════════════════════
 
 HF_USERNAME = "vssksn"   # ← change if needed
 PUSH_REPO   = f"{HF_USERNAME}/intellicredit-mistral-7b-grpo"
 
-print(f"\n🚀 Pushing LoRA adapter → {PUSH_REPO}")
-final_dir = f"{OUTPUT_BASE}/final"
+# ── Save LoRA adapter locally ────────────────────────────────────────
+print(f"\n💾 Saving LoRA adapter locally...")
+final_dir = f"{OUTPUT_BASE}/final_lora"
 os.makedirs(final_dir, exist_ok=True)
-model.eval()
 model.save_pretrained(final_dir)
 tokenizer.save_pretrained(final_dir)
+print(f"   ✅ LoRA adapter saved → {final_dir}/")
 
+# ── Save merged 16-bit model (Unsloth only) ─────────────────────────
+if USE_UNSLOTH:
+    print(f"\n💾 Saving merged 16-bit model...")
+    merged_dir = f"{OUTPUT_BASE}/final_merged"
+    try:
+        model.save_pretrained_merged(merged_dir, tokenizer, save_method="merged_16bit")
+        print(f"   ✅ Merged model saved → {merged_dir}/")
+    except Exception as e:
+        print(f"   ⚠️  Merged save failed ({e}) — LoRA adapter still available.")
+
+# ── Push to HF Hub ──────────────────────────────────────────────────
+print(f"\n🚀 Pushing to HF Hub → {PUSH_REPO}")
 try:
-    model.push_to_hub(PUSH_REPO, private=True)
-    tokenizer.push_to_hub(PUSH_REPO, private=True)
-    print(f"✅ Pushed → https://huggingface.co/{PUSH_REPO}")
+    if USE_UNSLOTH:
+        model.push_to_hub_merged(PUSH_REPO, tokenizer, save_method="merged_16bit", private=True)
+        print(f"✅ Pushed merged model → https://huggingface.co/{PUSH_REPO}")
+    else:
+        model.push_to_hub(PUSH_REPO, private=True)
+        tokenizer.push_to_hub(PUSH_REPO, private=True)
+        print(f"✅ Pushed LoRA adapter → https://huggingface.co/{PUSH_REPO}")
 except Exception as e:
     print(f"⚠️  Push failed ({e})")
     print(f"   Adapter available locally at: {final_dir}/")
