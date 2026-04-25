@@ -16,6 +16,7 @@ Total reward per completion = sum of all 4 functions.
 GRPO compares completions within a group of N to compute relative advantage.
 """
 
+import json
 import re
 import sys
 import os
@@ -71,9 +72,54 @@ def _has_hard_rule_in_prompt(prompt: str) -> List[str]:
         rules.append("HR-04")
     return rules
 
-
 # ═══════════════════════════════════════════════════════════════
-# REWARD FUNCTION 1: CORRECTNESS
+# SAFE TYPE COERCION HELPERS
+# GRPOTrainer passes dataset columns as batched Python objects. HF Dataset
+# serializes list columns to JSON strings; numeric columns sometimes arrive
+# as tensors or strings depending on the collator version.
+# ═══════════════════════════════════════════════════════════════
+
+def _safe_list(val) -> list:
+    """Ensure val is a Python list regardless of how GRPOTrainer delivers it."""
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        try:
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, list) else []
+        except (json.JSONDecodeError, ValueError):
+            return []
+    # Tensor or other sequence — convert element-wise
+    try:
+        return list(val)
+    except TypeError:
+        return []
+
+
+def _safe_float(val, default: float = 0.0) -> float:
+    """Coerce a metadata value to float; handles tensor scalars, None, str."""
+    if val is None:
+        return default
+    try:
+        # torch.Tensor.item() if available
+        return float(val.item()) if hasattr(val, "item") else float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_bool(val, default: bool = False) -> bool:
+    if val is None:
+        return default
+    if isinstance(val, bool):
+        return val
+    try:
+        return bool(val)
+    except (TypeError, ValueError):
+        return default
+
+
 # ═══════════════════════════════════════════════════════════════
 
 def reward_correctness(
@@ -99,7 +145,7 @@ def reward_correctness(
     rewards = []
     for i, completion in enumerate(completions):
         action, _, _ = _extract_action(completion)
-        pd = ground_truth_pd[i] if ground_truth_pd else 0.5
+        pd = _safe_float(ground_truth_pd[i] if ground_truth_pd else None, 0.5)
 
         if pd < 0.25:       # Good borrower
             if action == 0:   reward = 1.0
@@ -144,11 +190,11 @@ def reward_hard_rule_compliance(
     for i, completion in enumerate(completions):
         action, _, _ = _extract_action(completion)
 
-        # Get hard rules from metadata
-        hr = hard_rules[i] if hard_rules else []
-        red = has_red_alerts[i] if has_red_alerts else False
+        # Safely coerce hard_rules — arrives as JSON string from HF Dataset
+        hr = _safe_list(hard_rules[i] if hard_rules else None)
+        red = _safe_bool(has_red_alerts[i] if has_red_alerts else None)
 
-        # Also check prompt text for hard rules
+        # Also check prompt text for hard rules not captured in metadata
         prompt_hr = _has_hard_rule_in_prompt(prompts[i]) if not hr else []
         all_hr = list(set(hr + prompt_hr))
 
@@ -232,9 +278,17 @@ def reward_portfolio_awareness(
         action, _, _ = _extract_action(completion)
         reward = 0.0
 
-        npa = npa_rate[i] if npa_rate else _extract_from_prompt(prompts[i], "npa_rate", 0.02)
-        cr = crar[i] if crar else _extract_from_prompt(prompts[i], "crar", 0.18)
-        pd = ground_truth_pd[i] if ground_truth_pd else 0.5
+        npa = _safe_float(
+            npa_rate[i] if npa_rate else None,
+            _extract_from_prompt(prompts[i], "npa_rate", 0.02),
+        )
+        cr = _safe_float(
+            crar[i] if crar else None,
+            _extract_from_prompt(prompts[i], "crar", 0.18),
+        )
+        pd = _safe_float(
+            ground_truth_pd[i] if ground_truth_pd else None, 0.5
+        )
 
         # High NPA environment
         if npa > 0.08:

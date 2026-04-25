@@ -30,10 +30,26 @@ import json
 import os
 import sys
 import time
+import warnings
 from typing import Any, Dict, List, Optional
 
 # ═══════════════════════════════════════════════════════════════
-# PATH SETUP
+# ALLOCATOR CONFIG — must be set BEFORE torch is imported.
+# expandable_segments:True lets the CUDA allocator grow/shrink segments
+# instead of holding monolithic blocks, eliminating the "reserved but
+# unallocated" fragmentation that triggers false OOMs on 8 GB GPUs.
+# ═══════════════════════════════════════════════════════════════
+os.environ.setdefault(
+    "PYTORCH_CUDA_ALLOC_CONF",
+    "expandable_segments:True,max_split_size_mb:128",
+)
+
+# Suppress verbose deprecation noise from transformers/trl internals
+warnings.filterwarnings("ignore", category=FutureWarning, module="transformers")
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+
+# ═══════════════════════════════════════════════════════════════
+# PATH SETUP + .env LOADING
 # ═══════════════════════════════════════════════════════════════
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -44,6 +60,18 @@ DATASET_PATH  = os.path.join(TRAINING_DIR, "grpo_dataset.jsonl")
 CHECKPOINTS   = os.path.join(TRAINING_DIR, "checkpoints")
 LOGS_DIR      = os.path.join(TRAINING_DIR, "logs")
 MERGED_DIR    = os.path.join(TRAINING_DIR, "merged_model")
+
+# Load .env so HF_TOKEN is available for authenticated Hub downloads
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(PROJECT_ROOT, ".env")
+    load_dotenv(_env_path, override=False)
+    _hf_token = os.environ.get("HF_TOKEN")
+    if _hf_token:
+        os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", _hf_token)
+        print(f"  [env] HF_TOKEN loaded from {_env_path}")
+except ImportError:
+    pass  # python-dotenv optional; export HF_TOKEN manually if needed
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -84,68 +112,95 @@ MODEL_CONFIGS = {
     },
     "gemma_2b": {
         "model_name"    : "unsloth/gemma-2-2b-it",
+        # 1024 with num_gen=2 is the proven-stable config on RTX 5050 8GB:
+        # Peak VRAM = model(1.5) + KV(2seqs×1024tok×~108MB) + acts(~0.6GB)
+        #           ≈ 2.4 GB total. Safe headroom of ~5.6 GB.
+        # DO NOT raise to 2048: that triples activation memory and OOMs.
         "max_seq_length": 1024,
         "load_in_4bit"  : True,
         "lora_r"        : 8,
-        "lora_alpha"    : 8,
+        "lora_alpha"    : 16,
         "lora_dropout"  : 0.0,
         "target_modules" : ["q_proj", "v_proj", "k_proj", "o_proj"],
         "description"   : "Gemma-2-2B-Instruct",
     },
 }
 
-DEFAULT_MODEL = "llama3_8b"
+DEFAULT_MODEL = "gemma_1b"
 
 
 # ═══════════════════════════════════════════════════════════════
 # STEP 6.4: TRAINING HYPERPARAMETERS (3-Stage Curriculum)
 # ═══════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════
+# VRAM Budget for Gemma-2-2B-4bit on RTX 5050 (7.96 GB usable)
+# ----------------------------------------------------------------
+# Component              |  Memory
+# Model weights (4-bit)  |  ~1.5 GB
+# LoRA adapters          |  ~0.05 GB
+# Optimizer (adamw_8bit) |  ~0.3 GB
+# GRPO generation peak:  |
+#   num_gen × batch_size forward passes simultaneously
+#   Gemma-2-2B: 26 layers, 4 KV-heads, head_dim=256, bf16
+#   KV per seq @ 512 tok:  26×2×4×256×512×2  = ~54 MB
+#   2 seqs × 54 MB   = ~108 MB KV cache
+#   Activation (checkpointing on): ~150 MB × 2 = ~300 MB
+# Total safe estimate:   |  ~2.3 GB
+# Headroom:              |  ~5.7 GB available ✔
+# NOTE: num_generations ≥2 is required for GRPO advantage estimation.
+# ═══════════════════════════════════════════════════════════════
 STAGE_CONFIGS = {
     1: {
         "name"                       : "Stage 1: Easy (task1 only)",
         "task_filter"                : ["task1"],
         "num_train_epochs"           : 2,
-        "per_device_train_batch_size": 2,
-        "gradient_accumulation_steps": 8,
+        "per_device_train_batch_size": 1,
+        "gradient_accumulation_steps": 16,
         "learning_rate"              : 5e-6,
-        "max_completion_length"      : 300,
-        "num_generations"            : 8,
+        # prompt+completion budget: 800+128=928 < 1024 max_seq_length.
+        # max_prompt_length here is used for BOTH dataset truncation
+        # (at source, via tokenizer) AND GRPOConfig (collator guard).
+        "max_prompt_length"          : 800,
+        "max_completion_length"      : 128,
+        "num_generations"            : 2,
         "temperature"                : 0.9,
         "beta"                       : 0.001,
-        "warmup_ratio"               : 0.1,
+        "warmup_steps"               : 20,
         "logging_steps"              : 10,
-        "save_steps"                 : 100,
+        "save_steps"                 : 50,
     },
     2: {
         "name"                       : "Stage 2: Medium (task1 + task2)",
         "task_filter"                : ["task1", "task2"],
         "num_train_epochs"           : 2,
-        "per_device_train_batch_size": 2,
-        "gradient_accumulation_steps": 8,
-        "learning_rate"              : 5e-6,
-        "max_completion_length"      : 300,
-        "num_generations"            : 8,
+        "per_device_train_batch_size": 1,
+        "gradient_accumulation_steps": 16,
+        "learning_rate"              : 3e-6,
+        "max_prompt_length"          : 800,
+        "max_completion_length"      : 128,
+        "num_generations"            : 2,
         "temperature"                : 0.9,
         "beta"                       : 0.001,
-        "warmup_ratio"               : 0.1,
+        "warmup_steps"               : 20,
         "logging_steps"              : 10,
-        "save_steps"                 : 100,
+        "save_steps"                 : 50,
     },
     3: {
         "name"                       : "Stage 3: Full (all tasks)",
         "task_filter"                : ["task1", "task2", "task3", "task4", "task5"],
         "num_train_epochs"           : 3,
-        "per_device_train_batch_size": 2,
-        "gradient_accumulation_steps": 8,
+        "per_device_train_batch_size": 1,
+        "gradient_accumulation_steps": 16,
         "learning_rate"              : 2e-6,
-        "max_completion_length"      : 300,
-        "num_generations"            : 8,
+        "max_prompt_length"          : 800,
+        "max_completion_length"      : 128,
+        "num_generations"            : 2,
         "temperature"                : 0.8,
         "beta"                       : 0.001,
-        "warmup_ratio"               : 0.1,
+        "warmup_steps"               : 30,
         "logging_steps"              : 10,
-        "save_steps"                 : 100,
+        "save_steps"                 : 50,
     },
 }
 
@@ -209,19 +264,44 @@ def load_dataset(task_filter: List[str] = None, hf_dataset: str = None) -> List[
     return samples
 
 
-def prepare_hf_dataset(samples: List[dict]):
-    """Convert to HuggingFace Dataset format for GRPOTrainer."""
+def prepare_hf_dataset(samples: List[dict], tokenizer=None, max_prompt_length: int = 800):
+    """
+    Convert raw samples to HuggingFace Dataset for GRPOTrainer.
+
+    CRITICAL: Truncate prompts at SOURCE using the real tokenizer.
+    GRPOConfig.max_prompt_length only applies inside the trainer collator,
+    AFTER Unsloth shapes attention masks to max_seq_length. If a prompt
+    exceeds max_seq_length at that point, the tensor shape mismatch crashes:
+      RuntimeError: size of tensor a (512) must match tensor b (795)
+    Truncating here guarantees the dataset never contains over-length prompts.
+    """
     try:
         from datasets import Dataset
     except ImportError:
         print("  ❌ Install: pip install datasets")
         sys.exit(1)
 
+    truncated = 0
     rows = []
     for s in samples:
+        prompt = s["prompt"]
+
+        # Token-level truncation: decode back to text so GRPOTrainer's
+        # internal tokenizer call sees a correctly-sized string.
+        if tokenizer is not None and len(prompt) > 0:
+            enc = tokenizer(
+                prompt,
+                truncation=True,
+                max_length=max_prompt_length,
+                add_special_tokens=True,
+                return_tensors=None,
+            )
+            if len(enc["input_ids"]) < len(tokenizer(prompt, add_special_tokens=True)["input_ids"]):
+                truncated += 1
+            prompt = tokenizer.decode(enc["input_ids"], skip_special_tokens=False)
+
         rows.append({
-            "prompt": s["prompt"],
-            # Metadata fields for reward functions
+            "prompt"         : prompt,
             "ground_truth_pd": s["metadata"]["ground_truth_pd"],
             "optimal_action" : s["metadata"]["optimal_action"],
             "hard_rules"     : json.dumps(s["metadata"].get("hard_rules", [])),
@@ -230,6 +310,9 @@ def prepare_hf_dataset(samples: List[dict]):
             "crar"           : s["metadata"].get("crar", 0.18),
             "sector"         : s["metadata"].get("sector", "Unknown"),
         })
+
+    if truncated:
+        print(f"  [dataset] Truncated {truncated}/{len(samples)} prompts to ≤{max_prompt_length} tokens")
 
     return Dataset.from_list(rows)
 
@@ -397,23 +480,51 @@ def train_stage(
         model_name     = checkpoint_path or model_config["model_name"],
         max_seq_length = model_config["max_seq_length"],
         load_in_4bit   = model_config["load_in_4bit"],
-        fast_inference  = True,
+        fast_inference = False,
+        token          = os.environ.get("HF_TOKEN"),
     )
 
-    # Apply LoRA
+    # ── CRITICAL: Override generation_config to prevent max_length=8192 OOM ──
+    # Gemma-2's generation_config.json sets max_length=8192 by default.
+    # Unsloth's fast_forward_inference pre-allocates a KV cache sized to
+    # generation_config.max_length BEFORE our max_completion_length is applied.
+    # This causes 43× larger KV allocation than needed → CUDA OOM.
+    # Fix: pin max_new_tokens and clear max_length from the model config.
+    _max_new = config["max_completion_length"]
+    model.generation_config.max_new_tokens = _max_new
+    if hasattr(model.generation_config, "max_length"):
+        model.generation_config.max_length = None
+    # use_cache=False during training prevents the KV cache from growing
+    # unboundedly during the backward pass (training != inference).
+    model.config.use_cache = False
+    print(f"  [mem] generation_config patched: max_new_tokens={_max_new}, max_length=None, use_cache=False")
+
+    if torch.cuda.is_available():
+        free_gb = (torch.cuda.get_device_properties(0).total_memory
+                   - torch.cuda.memory_allocated()) / 1024**3
+        print(f"  [mem] VRAM after model load: {free_gb:.2f} GB free")
+
+    # Apply LoRA — use_gradient_checkpointing="unsloth" halves VRAM for
+    # activations at ~10% throughput cost; worthwhile on 8GB.
     model = FastLanguageModel.get_peft_model(
         model,
-        r              = model_config["lora_r"],
-        lora_alpha     = model_config["lora_alpha"],
-        lora_dropout   = model_config["lora_dropout"],
-        target_modules = model_config["target_modules"],
+        r                        = model_config["lora_r"],
+        lora_alpha               = model_config["lora_alpha"],
+        lora_dropout             = model_config["lora_dropout"],
+        target_modules           = model_config["target_modules"],
+        use_gradient_checkpointing= "unsloth",
+        random_state             = 42,
     )
 
     print(f"  ✓ Model loaded ({model_config['model_name']})")
 
-    # ── Prepare dataset ──────────────────────────────────────────
-    hf_dataset = prepare_hf_dataset(samples)
-    print(f"  ✓ Dataset prepared ({len(hf_dataset)} samples)")
+    # ── Prepare dataset (AFTER tokenizer is loaded so we can truncate) ──────
+    hf_dataset = prepare_hf_dataset(
+        samples,
+        tokenizer       = tokenizer,
+        max_prompt_length = config["max_prompt_length"],
+    )
+    print(f"  ✓ Dataset prepared ({len(hf_dataset)} samples, prompts ≤{config['max_prompt_length']} tokens)")
 
     # ── Build reward functions ───────────────────────────────────
     reward_funcs = build_reward_funcs()
@@ -424,21 +535,28 @@ def train_stage(
     os.makedirs(stage_output_dir, exist_ok=True)
 
     training_args = GRPOConfig(
-        output_dir                 = stage_output_dir,
-        num_train_epochs           = config["num_train_epochs"],
-        per_device_train_batch_size= config["per_device_train_batch_size"],
-        gradient_accumulation_steps= config["gradient_accumulation_steps"],
-        learning_rate              = config["learning_rate"],
-        max_completion_length      = config["max_completion_length"],
-        num_generations            = config["num_generations"],
-        temperature                = config["temperature"],
-        beta                       = config["beta"],
-        warmup_ratio               = config["warmup_ratio"],
-        logging_steps              = config["logging_steps"],
-        save_steps                 = config["save_steps"],
-        fp16                       = True,
-        report_to                  = "none",
-        log_level                  = "info",
+        output_dir                   = stage_output_dir,
+        num_train_epochs             = config["num_train_epochs"],
+        per_device_train_batch_size  = config["per_device_train_batch_size"],
+        gradient_accumulation_steps  = config["gradient_accumulation_steps"],
+        learning_rate                = config["learning_rate"],
+        # Sequence budget: prompt + completion must fit in max_seq_length.
+        # Capping prompt prevents truncation warnings from Unsloth.
+        max_prompt_length            = config["max_prompt_length"],
+        max_completion_length        = config["max_completion_length"],
+        num_generations              = config["num_generations"],
+        temperature                  = config["temperature"],
+        beta                         = config["beta"],
+        warmup_steps                 = config["warmup_steps"],  # warmup_ratio deprecated
+        logging_steps                = config["logging_steps"],
+        save_steps                   = config["save_steps"],
+        fp16                         = False,
+        bf16                         = True,
+        # Disable compile + cache to avoid generation_config conflict warnings
+        optim                        = "adamw_8bit",
+        dataloader_num_workers       = 0,   # WSL has no forked dataloader
+        report_to                    = "none",
+        log_level                    = "warning",   # suppress info spam
     )
 
     # ── Training monitor ─────────────────────────────────────────
@@ -446,13 +564,16 @@ def train_stage(
     monitor = TrainingMonitor(log_path)
 
     # ── Step 6.4: Run GRPO training ──────────────────────────────
+    eff_batch = config["per_device_train_batch_size"] * config["gradient_accumulation_steps"]
     print(f"\n  Starting GRPO training...")
-    print(f"  Effective batch size: {config['per_device_train_batch_size'] * config['gradient_accumulation_steps']}")
-    print(f"  Epochs: {config['num_train_epochs']}")
-    print(f"  Learning rate: {config['learning_rate']}")
-    print(f"  Num generations: {config['num_generations']}")
-    print(f"  Temperature: {config['temperature']}")
-    print(f"  Beta (KL): {config['beta']}")
+    print(f"  Effective batch size : {eff_batch}")
+    print(f"  Epochs               : {config['num_train_epochs']}")
+    print(f"  Learning rate        : {config['learning_rate']}")
+    print(f"  Num generations      : {config['num_generations']}")
+    print(f"  Max prompt length    : {config['max_prompt_length']}")
+    print(f"  Max completion length: {config['max_completion_length']}")
+    print(f"  Temperature          : {config['temperature']}")
+    print(f"  Beta (KL)            : {config['beta']}")
 
     trainer = GRPOTrainer(
         model         = model,
@@ -469,26 +590,28 @@ def train_stage(
 
     print(f"\n  ✓ Training completed in {elapsed/60:.1f} minutes")
 
+    # Report VRAM after training
+    if torch.cuda.is_available():
+        used  = torch.cuda.memory_allocated() / 1024**3
+        total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        print(f"  VRAM after training : {used:.2f} GB / {total:.2f} GB")
+
     # ── Step 6.6: Save checkpoint ─────────────────────────────────
     trainer.save_model(stage_output_dir)
     tokenizer.save_pretrained(stage_output_dir)
     print(f"  ✓ Checkpoint saved to: {stage_output_dir}")
 
-    # ── Quick inference test ──────────────────────────────────────
-    print(f"\n  Running quick inference test...")
-    test_prompts = samples[:5]
-    for tp in test_prompts:
-        inputs = tokenizer(tp["prompt"][:500], return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            outputs = model.generate(**inputs, max_new_tokens=100, temperature=0.7)
-        response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
-        print(f"    [{tp['metadata']['task_id']}] PD={tp['metadata']['ground_truth_pd']:.2f} → {response[:80]}...")
-
-    # Summary
-    summary = monitor.get_summary()
-    print(f"\n  Stage {stage} Summary:")
-    print(f"    Total steps: {summary.get('total_steps', 'N/A')}")
-    print(f"    Red flags: {summary.get('red_flags', [])}")
+    # ── Release VRAM before next stage ───────────────────────────
+    # Explicitly delete trainer + model so Python GC + CUDA allocator
+    # can reclaim all memory before the next stage re-loads the model.
+    del trainer, model, tokenizer
+    import gc; gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+        free = (torch.cuda.get_device_properties(0).total_memory
+                - torch.cuda.memory_allocated()) / 1024**3
+        print(f"  VRAM freed. Available for next stage: {free:.2f} GB")
 
     return stage_output_dir
 
@@ -585,6 +708,15 @@ def main():
         for s in [1, 2, 3]:
             train_stage(s, model_key=args.model,
                        resume=(s > 1), dry_run=args.dry_run, hf_repo=args.hf_dataset)
+            # Flush VRAM between stages — train_stage already does this
+            # internally, but a second empty_cache ensures the allocator
+            # has fully reset before the next stage's model load.
+            try:
+                import torch, gc
+                gc.collect()
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
     else:
         stage = int(args.stage)
         train_stage(stage, model_key=args.model,
