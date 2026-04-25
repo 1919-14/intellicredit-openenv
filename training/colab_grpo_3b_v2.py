@@ -882,33 +882,265 @@ print("✅ GRPO loss ready")
 
 
 # ════════════════════════════════════════════════════════════════════
-# ═══ CELL 12: TRAINING LOOP (v2 fixed LR + curriculum) ══════════════
+# ═══ CELL 12: STAGE 0 — SFT WARMUP (5 steps, cross-entropy) ════════
 # ════════════════════════════════════════════════════════════════════
+#
+# WHY: GRPO requires variance (std > 0) across the N generations for
+# each sample. The cold Qwen-3B model outputs the same vague text for
+# all 6 generations → rewards identical → advantages = 0 → loss = 0.
+#
+# FIX (used by DeepSeek-R1, Kimi, etc.): run a short SFT warmup on
+# hand-crafted gold examples that explicitly contain submit_decision().
+# After just 5 CE steps the model produces the format naturally at
+# temp=1.5, giving the reward variance GRPO needs.
 
-STAGE_CONFIGS = {
-    # Stage 1: FORMAT — teach submit_decision() at low LR, high temp
-    1: {"name": "Stage 1 — Format",        "tasks": ["task1"],
-        "lr": 5e-5,   "steps": 15, "temp": 1.5},   # ← LR lowered 2e-4→5e-5, temp 1.2→1.5
-    # Stage 2: HARD RULES — learn HR-01/HR-04 compliance
-    2: {"name": "Stage 2 — Hard Rules",    "tasks": ["task1","task2"],
-        "lr": 3e-5,   "steps": 15, "temp": 1.2},
-    # Stage 3: PORTFOLIO — portfolio-aware decisions
-    3: {"name": "Stage 3 — Portfolio",     "tasks": None,
-        "lr": 1e-5,   "steps": 20, "temp": 1.0},
-}
-# Total: 50 steps — slightly more than v1's 40 but each step is meaningful
+SFT_GOLD_EXAMPLES = [
+    # ── REJECT (HR triggered) ────────────────────────────────────────
+    {
+        "user": (
+            "Application: TechTex Pvt Ltd. Loan: ₹5 Cr.\n"
+            "DSCR: 0.72x | Current Ratio: 0.9x | CIBIL: 610\n"
+            "Cheque Bounce Rate: 8% | Hard Rules: HR-01 triggered (DSCR<1.0)"
+        ),
+        "assistant": (
+            "Reviewing the application: DSCR is 0.72x which is below the mandatory "
+            "1.0x minimum, directly triggering Hard Rule HR-01. This is a mandatory "
+            "reject condition regardless of other factors.\n"
+            'submit_decision("REJECT", "Hard rule HR-01 triggered: DSCR 0.72x is below '
+            'the mandatory 1.0x minimum. Application declined per RBI compliance policy.")'
+        ),
+    },
+    {
+        "user": (
+            "Application: Sunrise Exports. Loan: ₹2 Cr.\n"
+            "DSCR: 0.88x | Cheque Bounce Rate: 32% | CIBIL: 640\n"
+            "Hard Rules: HR-01 (DSCR<1.0), HR-04 (bounce>25%) both triggered."
+        ),
+        "assistant": (
+            "Two hard rules are triggered simultaneously: HR-01 due to DSCR of 0.88x "
+            "and HR-04 due to cheque bounce rate of 32%. Both are mandatory reject conditions.\n"
+            'submit_decision("REJECT", "Two hard rules triggered: HR-01 (DSCR 0.88x < 1.0) '
+            'and HR-04 (bounce rate 32% > 25%). Mandatory reject under RBI guidelines.")'
+        ),
+    },
+    {
+        "user": (
+            "Application: Nova Steel Ltd. Loan: ₹8 Cr.\n"
+            "DSCR: 0.95x | EBITDA Margin: 12% | CIBIL: 580\n"
+            "Hard Rules: HR-01 triggered. NPA Rate: 5.1% | CRAR: 13%"
+        ),
+        "assistant": (
+            "DSCR of 0.95x falls below the mandatory 1.0x threshold, triggering HR-01. "
+            "Additionally, NPA rate 5.1% is above the 5% limit and CIBIL 580 is weak.\n"
+            'submit_decision("REJECT", "HR-01 triggered: DSCR 0.95x below 1.0x minimum. '
+            'Compounded by weak CIBIL 580 and NPA rate 5.1% above institutional limit.")'
+        ),
+    },
+    # ── APPROVE (strong financials, no hard rules) ───────────────────
+    {
+        "user": (
+            "Application: GreenLeaf Foods. Loan: ₹3 Cr.\n"
+            "DSCR: 1.85x | Current Ratio: 1.6x | CIBIL: 762\n"
+            "Collateral: 1.45x | D/E: 1.1x | Hard Rules: None triggered.\n"
+            "Revenue CAGR: +14% | NPA Rate: 1.8% | CRAR: 19%"
+        ),
+        "assistant": (
+            "All financial metrics are strong: DSCR 1.85x well above minimum, CIBIL 762, "
+            "collateral coverage 1.45x, no hard rules triggered, and healthy revenue CAGR.\n"
+            'submit_decision("APPROVE", "Strong application: DSCR 1.85x, CIBIL 762, '
+            'collateral 1.45x, no compliance issues, 14% revenue CAGR. Risk profile is sound.")'
+        ),
+    },
+    {
+        "user": (
+            "Application: Precision Auto Parts. Loan: ₹1.5 Cr.\n"
+            "DSCR: 2.1x | CIBIL: 798 | Collateral: 1.8x | D/E: 0.8x\n"
+            "Hard Rules: None. Cheque Bounce: 1%. OD Utilisation: 35%\n"
+            "NPA Rate: 1.2% | CRAR: 21%"
+        ),
+        "assistant": (
+            "Exceptional financials across all metrics. DSCR 2.1x is very strong, CIBIL 798 "
+            "is excellent, collateral is well-covered, and banking behaviour is clean.\n"
+            'submit_decision("APPROVE", "Excellent credit profile: DSCR 2.1x, CIBIL 798, '
+            'collateral 1.8x, 1% bounce rate. No compliance concerns. Strong approval candidate.")'
+        ),
+    },
+    {
+        "user": (
+            "Application: BlueBird Logistics. Loan: ₹4 Cr.\n"
+            "DSCR: 1.52x | CIBIL: 731 | Collateral: 1.3x\n"
+            "Hard Rules: None triggered. Revenue: ₹28 Cr | NPA: 2.1%"
+        ),
+        "assistant": (
+            "DSCR 1.52x is adequately above the 1.0x minimum, CIBIL is good at 731, "
+            "collateral provides reasonable coverage, and no hard rules are triggered.\n"
+            'submit_decision("APPROVE", "Adequate financials: DSCR 1.52x above minimum, '
+            'CIBIL 731, collateral 1.3x, no compliance violations. Application approved.")'
+        ),
+    },
+    # ── CONDITIONAL (borderline, needs conditions) ───────────────────
+    {
+        "user": (
+            "Application: Vertex Pharma. Loan: ₹6 Cr.\n"
+            "DSCR: 1.18x | CIBIL: 715 | Collateral: 0.92x | D/E: 2.3x\n"
+            "Hard Rules: None triggered. OD Utilisation: 71%"
+        ),
+        "assistant": (
+            "DSCR 1.18x is just above the minimum, CIBIL 715 is acceptable, but collateral "
+            "of 0.92x is below the preferred 1.25x, and D/E of 2.3x indicates high leverage.\n"
+            'submit_decision("CONDITIONAL", "Borderline case: DSCR 1.18x barely adequate, '
+            'collateral 0.92x below preferred 1.25x, D/E 2.3x high. Approve subject to '
+            'additional collateral or personal guarantee from promoter.")'
+        ),
+    },
+    {
+        "user": (
+            "Application: Horizon Textiles. Loan: ₹2.5 Cr.\n"
+            "DSCR: 1.25x | CIBIL: 688 | Collateral: 1.05x\n"
+            "Hard Rules: None. Revenue declining -3% CAGR. OD: 68%"
+        ),
+        "assistant": (
+            "DSCR 1.25x is adequate, but CIBIL 688 is slightly below the preferred 700, "
+            "collateral at 1.05x is thin, and revenue shows a declining trend of -3% CAGR.\n"
+            'submit_decision("CONDITIONAL", "Adequate DSCR 1.25x but CIBIL 688 below '
+            'preferred threshold, collateral 1.05x thin, and -3% revenue decline. '
+            'Approve only with additional security and quarterly monitoring.")'
+        ),
+    },
+    {
+        "user": (
+            "Application: Radiant Construction. Loan: ₹10 Cr.\n"
+            "DSCR: 1.35x | CIBIL: 725 | Collateral: 1.15x | D/E: 1.9x\n"
+            "Hard Rules: None. Sector: Construction (high stress). NPA: 3.8%"
+        ),
+        "assistant": (
+            "Financial metrics are reasonable, but the construction sector carries elevated "
+            "stress, D/E is high at 1.9x, and collateral coverage at 1.15x is below ideal.\n"
+            'submit_decision("CONDITIONAL", "Acceptable financials but construction sector '
+            'stress, D/E 1.9x, and collateral 1.15x below preferred 1.25x. Approve subject '
+            'to phased disbursement and enhanced monitoring given sector risk.")'
+        ),
+    },
+]
 
-all_logs    = {1: [], 2: [], 3: []}
-stage_times = {}
+# ── SFT Warmup Training ───────────────────────────────────────────────
+SFT_STEPS      = 5
+SFT_LR         = 2e-5
+SFT_EPOCHS     = 2   # cycle through gold examples multiple times per step
+
+print("\n" + "═" * 68)
+print("  STAGE 0 — SFT WARMUP (primes submit_decision format)")
+print(f"  Gold examples: {len(SFT_GOLD_EXAMPLES)} | Steps: {SFT_STEPS} | LR: {SFT_LR}")
+print("  This teaches the model the output format before GRPO begins.")
+print("═" * 68)
+
+sft_optimizer = _get_optimizer(model, SFT_LR) if '_get_optimizer' in dir() else \
+    torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=SFT_LR)
 
 def _get_optimizer(model, lr: float):
     return torch.optim.AdamW([p for p in model.parameters() if p.requires_grad],
                               lr=lr, weight_decay=0.01)
 
+sft_optimizer = _get_optimizer(model, SFT_LR)
+sys_p         = build_system_prompt(MAX_TOOL_TURNS, None)
+model.train()
+t0_sft = time.time()
+
+for sft_step in range(1, SFT_STEPS + 1):
+    step_loss = torch.tensor(0.0, device=model.device)
+    n_tokens  = 0
+
+    for _ in range(SFT_EPOCHS):
+        random.shuffle(SFT_GOLD_EXAMPLES)
+        for ex in SFT_GOLD_EXAMPLES:
+            msgs = [
+                {"role": "system",    "content": sys_p},
+                {"role": "user",      "content": ex["user"]},
+                {"role": "assistant", "content": ex["assistant"]},
+            ]
+            full_text  = tokenizer.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=False
+            )
+            prompt_txt = tokenizer.apply_chat_template(
+                msgs[:-1], tokenize=False, add_generation_prompt=True
+            )
+            full_ids   = tokenizer(full_text,  return_tensors="pt",
+                                   truncation=True, max_length=MAX_SEQ_LEN).input_ids.to(model.device)
+            prompt_ids = tokenizer(prompt_txt, return_tensors="pt",
+                                   truncation=True, max_length=MAX_SEQ_LEN).input_ids.to(model.device)
+            prompt_len = prompt_ids.shape[1]
+
+            if full_ids.shape[1] <= prompt_len:
+                continue
+
+            with torch.amp.autocast("cuda", enabled=True, dtype=torch.bfloat16):
+                logits = model(full_ids).logits
+
+            # Compute CE loss only on the ASSISTANT tokens (not prompt)
+            shift_logits = logits[0, prompt_len - 1:-1, :]
+            shift_labels = full_ids[0, prompt_len:]
+            ce = F.cross_entropy(shift_logits.float(), shift_labels, reduction="sum")
+            step_loss = step_loss + ce
+            n_tokens  = n_tokens  + shift_labels.shape[0]
+
+    if n_tokens > 0:
+        avg_loss = step_loss / n_tokens
+        avg_loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+        sft_optimizer.step()
+        sft_optimizer.zero_grad()
+        print(f"  [SFT] Step {sft_step}/{SFT_STEPS} | ce_loss={avg_loss.item():.4f} | "
+              f"tokens={n_tokens} | ETA {(time.time()-t0_sft)/sft_step*(SFT_STEPS-sft_step)/60:.1f}m")
+
+# Verify the warmup worked with a quick generation test
+model.eval()
+_wm_msgs = [
+    {"role": "system", "content": sys_p},
+    {"role": "user",   "content": "DSCR=0.85x (HR-01 triggered). CIBIL=620. What is your decision?"},
+]
+_wm_txt = tokenizer.apply_chat_template(_wm_msgs, tokenize=False, add_generation_prompt=True)
+_wm_inp = tokenizer(_wm_txt, return_tensors="pt", truncation=True, max_length=MAX_SEQ_LEN).to(model.device)
+with torch.no_grad():
+    _wm_out = model.generate(**_wm_inp, max_new_tokens=100, do_sample=True, temperature=0.8)
+_wm_resp = tokenizer.decode(_wm_out[0][_wm_inp.input_ids.shape[1]:], skip_special_tokens=True)
+_wm_p    = parse_llm_output(_wm_resp)
+print(f"\n  Post-SFT check: parse_type={_wm_p['parse_type']} | action={_wm_p['action']}")
+print(f"  Response: {_wm_resp[:120]}")
+if _wm_p["parse_type"] == "final_decision":
+    print("  🎉 SFT warmup successful — model now outputs submit_decision()!")
+elif _wm_p["parse_type"] in ("structured_label", "sentence_decision"):
+    print("  ✅ SFT warmup partial — model improved, GRPO will finish the job.")
+else:
+    print("  ⚠️  SFT warmup may need more steps — continuing to GRPO anyway.")
+model.train()
+
+sft_time = time.time() - t0_sft
+print(f"  ✅ Stage 0 SFT done in {sft_time/60:.1f} min")
+print("═" * 68)
+
+
+# ════════════════════════════════════════════════════════════════════
+# ═══ CELL 13: GRPO TRAINING STAGES 1-3 ═════════════════════════════
+# ════════════════════════════════════════════════════════════════════
+
+STAGE_CONFIGS = {
+    # Stage 1: FORMAT — GRPO on top of SFT-warmed model
+    1: {"name": "Stage 1 — Format",     "tasks": ["task1"],
+        "lr": 5e-5,  "steps": 15, "temp": 1.5},
+    # Stage 2: HARD RULES — HR-01/HR-04 compliance
+    2: {"name": "Stage 2 — Hard Rules", "tasks": ["task1", "task2"],
+        "lr": 3e-5,  "steps": 15, "temp": 1.2},
+    # Stage 3: PORTFOLIO — all tasks, low LR, low temp
+    3: {"name": "Stage 3 — Portfolio",  "tasks": None,
+        "lr": 1e-5,  "steps": 20, "temp": 1.0},
+}
+
+all_logs    = {1: [], 2: [], 3: []}
+stage_times = {}
+
 print("=" * 68)
-print("  STARTING v2 GRPO — Qwen2.5-3B (A100)")
-print(f"  KEY FIXES: KL_BETA={KL_BETA} | few-shot prompt | LR≤5e-5 | lang penalty")
-print(f"  Total steps: {sum(c['steps'] for c in STAGE_CONFIGS.values())}")
+print("  STARTING GRPO STAGES — Qwen2.5-3B (A100)")
+print(f"  KL_BETA={KL_BETA} | NUM_GEN={NUM_GENERATIONS} | Total steps={sum(c['steps'] for c in STAGE_CONFIGS.values())}")
 print("=" * 68)
 
 for stage_num in [1, 2, 3]:
