@@ -17,6 +17,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
 import random
 import math
+import json
 
 from openenv.core.env_server.interfaces import Environment
 from openenv.core.env_server.types import State
@@ -541,6 +542,15 @@ class RegulatorAgent:
 _SESSION_STORE: Dict[str, Dict[str, Any]] = {}
 
 
+def _tool_signature(tool_name: str, tool_args: Dict[str, Any]) -> str:
+    """Stable signature used to detect duplicate tool calls within one step."""
+    return json.dumps(
+        {"tool": tool_name, "args": tool_args},
+        sort_keys=True,
+        default=str,
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN ENVIRONMENT — v2.0
 # ═══════════════════════════════════════════════════════════════
@@ -578,6 +588,8 @@ class IntelliCreditEnvironment(Environment):
         # v2: tool call tracking per step
         self._step_tool_call_count: int = 0
         self._total_tool_calls: int = 0
+        self._step_tool_signatures: set = set()
+        self._step_redundant_tool_calls: int = 0
         # v2: current app borrower id for rejection tracking
         self._current_borrower_id: Optional[str] = None
 
@@ -598,6 +610,8 @@ class IntelliCreditEnvironment(Environment):
             "total_steps":          self._total_steps,
             "step_tool_call_count": self._step_tool_call_count,
             "total_tool_calls":     self._total_tool_calls,
+            "step_tool_signatures":  list(self._step_tool_signatures),
+            "step_redundant_tool_calls": self._step_redundant_tool_calls,
             "current_borrower_id":  self._current_borrower_id,
         }
 
@@ -618,6 +632,8 @@ class IntelliCreditEnvironment(Environment):
         self._total_steps          = data["total_steps"]
         self._step_tool_call_count = data.get("step_tool_call_count", 0)
         self._total_tool_calls     = data.get("total_tool_calls", 0)
+        self._step_tool_signatures = set(data.get("step_tool_signatures", []))
+        self._step_redundant_tool_calls = data.get("step_redundant_tool_calls", 0)
         self._current_borrower_id  = data.get("current_borrower_id")
         self._state = State(episode_id=episode_id, step_count=self._current_step)
         return True
@@ -648,6 +664,8 @@ class IntelliCreditEnvironment(Environment):
         self._portfolio.total_episode_steps = self._total_steps
         self._step_tool_call_count = 0
         self._total_tool_calls     = 0
+        self._step_tool_signatures  = set()
+        self._step_redundant_tool_calls = 0
         self._current_borrower_id  = None
 
         # Generate all base applications upfront
@@ -697,6 +715,81 @@ class IntelliCreditEnvironment(Environment):
                 force_done=True,
             )
 
+        forced_tool_limit = False
+        raw_llm_output = (
+            getattr(action, "llm_output", None)
+            or getattr(action, "raw_text", None)
+        )
+
+        # v2 online-agent mode: parse raw LLM text at the environment boundary.
+        # Tool calls return a tool result and do NOT advance macro time or step count.
+        if raw_llm_output:
+            try:
+                from .action_parser import parse_llm_output
+                from .tool_executor import execute_tool
+            except ImportError:
+                from server.action_parser import parse_llm_output
+                from server.tool_executor import execute_tool
+
+            parsed = parse_llm_output(raw_llm_output)
+
+            if parsed["parse_type"] == "tool_call":
+                if self._step_tool_call_count >= 4:
+                    forced_tool_limit = True
+                    action.decision = 1
+                    action.reasoning = (
+                        "[FORCED CONDITIONAL: MAX_TOOL_CALLS_EXCEEDED] "
+                        "The agent exceeded the four-tool limit before making a final decision."
+                    )
+                    action.parse_type = "default_reject"
+                    action.parse_confidence = 0.0
+                    action.parse_failure = True
+                else:
+                    tool_name = parsed["tool_name"]
+                    tool_args = parsed["tool_args"] or {}
+                    signature = _tool_signature(tool_name, tool_args)
+                    is_redundant = signature in self._step_tool_signatures
+                    self._step_tool_signatures.add(signature)
+
+                    tool_result = execute_tool(tool_name, tool_args, self)
+                    self._step_tool_call_count += 1
+                    self._total_tool_calls += 1
+                    if self._portfolio:
+                        self._portfolio.total_tool_calls += 1
+                    if is_redundant:
+                        self._step_redundant_tool_calls += 1
+                        tool_result = dict(tool_result)
+                        tool_result["redundant"] = True
+                        tool_result["display_text"] = (
+                            "[REDUNDANT TOOL CALL: this repeats a tool+args already used "
+                            "in the current decision step]\n"
+                            + tool_result.get("display_text", "")
+                        )
+                    else:
+                        tool_result = {**tool_result, "redundant": False}
+
+                    if episode_id:
+                        self._save_to_store(episode_id)
+
+                    return self._build_observation(
+                        reward=0.0,
+                        reward_components={
+                            "tool_call": 0.0,
+                            "tool_call_count": self._step_tool_call_count,
+                            "redundant_tool_call": is_redundant,
+                        },
+                        tool_result=tool_result,
+                        last_parse_type="tool_call",
+                        last_tool_name=tool_name,
+                    )
+
+            else:
+                action.decision = parsed["action"]
+                action.reasoning = parsed["reasoning"]
+                action.parse_type = parsed["parse_type"]
+                action.parse_confidence = parsed["parse_confidence"]
+                action.parse_failure = parsed["parse_failure"]
+
         # ── Advance macro state for this step ───────────────────
         self._world.tick_macro(self._current_step + 1)
 
@@ -735,12 +828,28 @@ class IntelliCreditEnvironment(Environment):
         parse_type       = getattr(action, "parse_type",       "final_decision")
         parse_confidence = getattr(action, "parse_confidence", 0.90)
         reasoning_len    = len(getattr(action, "reasoning",    "") or "")
+        if parse_type is None:
+            parse_type = "final_decision"
+        if parse_confidence is None:
+            parse_confidence = 0.90
+
+        tool_efficiency_delta = 0.0
+        if self._step_tool_call_count > 0:
+            if effective_decision == meta.get("optimal_action"):
+                tool_efficiency_delta += 0.20
+            elif self._step_tool_call_count >= 3:
+                tool_efficiency_delta -= 0.10
+            if self._step_redundant_tool_calls:
+                tool_efficiency_delta -= 0.10 * self._step_redundant_tool_calls
+        if forced_tool_limit:
+            tool_efficiency_delta -= 0.50
 
         reward, components = compute_step_reward(
             action           = effective_decision,
             app_metadata     = meta,
             portfolio        = self._portfolio,
             is_final_step    = is_final,
+            tool_efficiency_delta = tool_efficiency_delta,
             parse_type       = parse_type,
             parse_confidence = parse_confidence,
             reasoning_len    = reasoning_len,
@@ -760,6 +869,9 @@ class IntelliCreditEnvironment(Environment):
                 reward += PENALTY_HARD_RULE_CONDITIONAL
             components["hard_rule_override"] = True
 
+        if self._step_tool_call_count > 0 and effective_decision == meta.get("optimal_action"):
+            self._portfolio.useful_tool_calls += self._step_tool_call_count
+
         # ── Update portfolio alerts ──────────────────────────────
         self._portfolio.update_alerts_from_application(
             app_features=app["features"],
@@ -774,6 +886,8 @@ class IntelliCreditEnvironment(Environment):
         self._current_step += 1
         self._state.step_count = self._current_step
         self._step_tool_call_count = 0   # reset per-step tool count
+        self._step_tool_signatures = set()
+        self._step_redundant_tool_calls = 0
 
         # ── WorldState: record decision ───────────────────────────
         self._world.record_decision(effective_decision, self._portfolio.npa_rate)
@@ -833,6 +947,9 @@ class IntelliCreditEnvironment(Environment):
         reward_components: Dict[str, float],
         force_done: bool = False,
         audit_result: Optional[Dict] = None,
+        tool_result: Optional[Dict[str, Any]] = None,
+        last_parse_type: Optional[str] = None,
+        last_tool_name: Optional[str] = None,
     ) -> IntelliCreditObservation:
         """Build full 55D observation (45D legacy + 10D memory features)."""
         done = force_done or self._done
@@ -941,6 +1058,12 @@ class IntelliCreditEnvironment(Environment):
             tool_call_count=self._step_tool_call_count,
             regulator_warning_level=reg_warning,
             audit_result=audit_result,
+            tool_result=tool_result,
+            tool_result_text=(
+                tool_result.get("display_text") if isinstance(tool_result, dict) else None
+            ),
+            last_parse_type=last_parse_type,
+            last_tool_name=last_tool_name,
         )
 
 
