@@ -30,6 +30,9 @@ import subprocess, sys
 def _pip(*args):
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *args])
 
+# Force install PyTorch with CUDA 12.1 support first
+_pip("torch", "torchvision", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu121", "--upgrade")
+
 _pip("--upgrade", "pip")
 _pip("bitsandbytes>=0.46.1")
 _pip("transformers>=4.45.0,<5.0.0")
