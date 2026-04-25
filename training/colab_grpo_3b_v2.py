@@ -76,7 +76,7 @@ OUTPUT_BASE  = "intellicredit-grpo-mistral-7b"
 
 # ── GRPO hyper-params ────────────────────────────────────────────────
 NUM_GENERATIONS  = 6       # good advantage contrast
-MAX_NEW_TOKENS   = 200     # Mistral is more verbose, give it more room
+MAX_NEW_TOKENS   = 350     # must be big enough for analysis + submit_decision()
 MAX_TOOL_TURNS   = 2
 BATCH_SIZE       = 2       # Mistral-7B 4-bit: ~6GB, easily fits 2 on A100
 GRAD_ACCUM       = 1
@@ -855,13 +855,15 @@ def grpo_loss_step(model, tokenizer, samples: List[Dict],
                 tokenize=False, add_generation_prompt=True
             )
             lp  = compute_log_probs(model, tokenizer, p_str, ep["completion"])
-            ck  = hash(ep["completion"][:120])
-            if ck not in ref_cache:
-                with torch.no_grad():
-                    ref_cache[ck] = compute_log_probs(
-                        model, tokenizer, p_str, ep["completion"]
-                    ).detach()
-            ref_lp = ref_cache[ck]
+
+            # ── Reference log-probs: base model (LoRA disabled) ──────────
+            # FIX: previously ref_cache used the CURRENT model → kl always 0.
+            # Now we disable the LoRA adapter to get the frozen base model's
+            # log-probs — this is the correct GRPO reference policy.
+            with torch.no_grad(), model.disable_adapter():
+                ref_lp = compute_log_probs(
+                    model, tokenizer, p_str, ep["completion"]
+                ).detach()
 
             kl        = (lp - ref_lp).clamp(min=0)
             adv_t     = torch.tensor(float(adv), device=model.device)
@@ -1025,7 +1027,7 @@ SFT_GOLD_EXAMPLES = [
 ]
 
 # ── SFT Warmup Training ───────────────────────────────────────────────
-SFT_STEPS      = 5
+SFT_STEPS      = 15   # more steps → format ingrained for complex prompts too
 SFT_LR         = 2e-5
 SFT_EPOCHS     = 2   # cycle through gold examples multiple times per step
 
@@ -1140,7 +1142,7 @@ all_logs    = {1: [], 2: [], 3: []}
 stage_times = {}
 
 print("=" * 68)
-print("  STARTING GRPO STAGES — Qwen2.5-3B (A100)")
+print(f"  STARTING GRPO STAGES — {MODEL_NAME.split('/')[-1]} (A100)")
 print(f"  KL_BETA={KL_BETA} | NUM_GEN={NUM_GENERATIONS} | Total steps={sum(c['steps'] for c in STAGE_CONFIGS.values())}")
 print("=" * 68)
 
@@ -1195,11 +1197,14 @@ for stage_num in [1, 2, 3]:
             "tool_calls": avg_tools, "submit_pct": submit_pct,
         })
 
+        # Build parse_type breakdown for diagnostics
+        pt_str = " ".join(f"{k[:4]}:{v}" for k, v in sorted(pt_counts.items()) if v > 0)
         print(f"  [{stage_num}] Step {step:2d}/{cfg['steps']} | "
-              f"loss={float(loss.detach()):+.3f} | "
+              f"loss={float(loss.detach()):+.6f} | "
               f"reward={avg_reward:+.2f}±{std_reward:.2f} | "
               f"submit={submit_pct:.0f}% | "
               f"kl={avg_kl:.4f} | "
+              f"types=[{pt_str}] | "
               f"ETA {eta/60:.1f}m")
 
     elapsed = time.time() - t_start
