@@ -1,19 +1,17 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
-║  IntelliCredit v2 — GRPO 3B v2 (Fixed · A100)                       ║
-║  Model  : Qwen/Qwen2.5-3B-Instruct  (4-bit QLoRA)                   ║
+║  IntelliCredit v2 — GRPO Mistral-7B (A100)                          ║
+║  Model  : mistralai/Mistral-7B-Instruct-v0.3  (4-bit QLoRA)         ║
 ║  Target : HF JupyterLab Space — Nvidia A100 · 80 GB                 ║
 ║                                                                      ║
-║  v2 Fixes vs v1 (which suffered multilingual drift + std=0):         ║
-║  ✅ FEW-SHOT submit_decision() examples in system prompt             ║
-║     → model knows the format → std>0 → real GRPO signal             ║
-║  ✅ KL_BETA raised 0.04 → 0.15 (tight leash on policy drift)        ║
-║  ✅ LR lowered 2e-4 → 5e-5  (no more multilingual collapse)         ║
-║  ✅ Temperature raised 1.2 → 1.5 (more generation diversity)        ║
-║  ✅ NUM_GENERATIONS raised 4 → 6 (better advantage contrast)        ║
-║  ✅ MULTI_STEP_GRPO=False (single-turn stable for cold-start)       ║
-║  ✅ Language penalty reward (punishes non-English output)            ║
-║  ✅ Fixed torch_dtype → dtype deprecation warning                   ║
+║  Why Mistral instead of Qwen2.5-3B:                                  ║
+║  ✅ Native function-call training in v0.3                           ║
+║  ✅ Dramatically better instruction following → submit_decision()   ║
+║     naturally at cold start → std>0 from GRPO Step 1               ║
+║  ✅ 7B params in 4-bit = ~6GB VRAM (trivial on A100 80GB)          ║
+║  ✅ [INST] chat template handled automatically by tokenizer         ║
+║  ✅ KL_BETA=0.15 + SFT warmup + robust parser v3                   ║
+║  ✅ Stage 0 SFT warmup (9 gold examples) before GRPO               ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
 Paste each ═══ CELL ═══ block into a separate Jupyter cell.
@@ -37,6 +35,7 @@ _pip("bitsandbytes>=0.46.1")
 _pip("transformers>=4.45.0,<5.0.0")
 _pip("trl>=0.15.2", "peft>=0.13.0", "accelerate>=1.0.0")
 _pip("datasets>=2.20.0", "huggingface_hub>=0.24.0", "matplotlib", "langdetect")
+_pip("sentencepiece", "protobuf")   # ← required for Mistral SentencePiece tokenizer
 
 import os
 hf_tok = os.environ.get("HF_TOKEN", "")
@@ -71,19 +70,19 @@ from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_tr
 from huggingface_hub import hf_hub_download
 
 # ── Core Config ──────────────────────────────────────────────────────
-MODEL_NAME   = "Qwen/Qwen2.5-3B-Instruct"
+MODEL_NAME   = "mistralai/Mistral-7B-Instruct-v0.3"   # ← switched from Qwen 3B
 HF_DATASET   = "vssksn/intellicredit-grpo-v2"
-OUTPUT_BASE  = "intellicredit-grpo-3b-v2"
+OUTPUT_BASE  = "intellicredit-grpo-mistral-7b"
 
-# ── v2 GRPO hyper-params (fixed) ─────────────────────────────────────
-NUM_GENERATIONS  = 6       # raised from 4 → better advantage contrast
-MAX_NEW_TOKENS   = 180     # enough for submit_decision + reasoning
+# ── GRPO hyper-params ────────────────────────────────────────────────
+NUM_GENERATIONS  = 6       # good advantage contrast
+MAX_NEW_TOKENS   = 200     # Mistral is more verbose, give it more room
 MAX_TOOL_TURNS   = 2
-BATCH_SIZE       = 2
+BATCH_SIZE       = 2       # Mistral-7B 4-bit: ~6GB, easily fits 2 on A100
 GRAD_ACCUM       = 1
-KL_BETA          = 0.15   # ← KEY FIX: raised from 0.04 to prevent drift
-MAX_SEQ_LEN      = 1400
-MULTI_STEP_GRPO  = False  # ← disabled for cold-start stability
+KL_BETA          = 0.15   # tight leash — prevents drift
+MAX_SEQ_LEN      = 1600   # Mistral supports 32K context, use a bit more
+MULTI_STEP_GRPO  = False  # single-turn stable for cold-start
 
 os.makedirs(OUTPUT_BASE, exist_ok=True)
 os.makedirs(f"{OUTPUT_BASE}/charts", exist_ok=True)
@@ -623,16 +622,18 @@ model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     quantization_config = bnb_config,
     device_map          = "auto",
-    trust_remote_code   = True,
-    dtype               = torch.bfloat16,   # fixed: was torch_dtype (deprecated)
+    torch_dtype         = torch.bfloat16,   # Mistral: use torch_dtype not dtype
 )
 model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+# Mistral tokenizer fix: no pad_token by default, use eos_token
 if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.add_special_tokens({"pad_token": "<pad>"})
+    model.resize_token_embeddings(len(tokenizer))
 tokenizer.padding_side = "left"
 
+# Mistral-7B LoRA — same target modules as Qwen (standard MistralForCausalLM)
 lora_cfg = LoraConfig(
     r              = 16,
     lora_alpha     = 32,
@@ -644,7 +645,7 @@ lora_cfg = LoraConfig(
 )
 model = get_peft_model(model, lora_cfg)
 model.print_trainable_parameters()
-print("✅ Model + LoRA ready")
+print(f"✅ Model + LoRA ready (vocab size: {len(tokenizer)})")
 
 # Smoke test — now with few-shot examples in prompt, should see submit_decision
 print("\n🔍 Smoke test (should now show submit_decision in response)...")
@@ -1287,7 +1288,7 @@ print(f"✅ Charts saved → {chart_path}")
 # ════════════════════════════════════════════════════════════════════
 
 HF_USERNAME = "vssksn"   # ← change if needed
-PUSH_REPO   = f"{HF_USERNAME}/intellicredit-3b-grpo-v2"
+PUSH_REPO   = f"{HF_USERNAME}/intellicredit-mistral-7b-grpo"
 
 print(f"\n🚀 Pushing LoRA adapter → {PUSH_REPO}")
 final_dir = f"{OUTPUT_BASE}/final"
