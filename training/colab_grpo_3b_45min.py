@@ -110,6 +110,7 @@ ACTION_MAP = {
     "APPROVE": 0, "APPROVED": 0,
     "CONDITIONAL": 1, "CONDITIONAL_APPROVE": 1, "CONDITIONAL APPROVE": 1,
     "REJECT": 2, "REJECTED": 2, "DECLINE": 2, "DENY": 2,
+    "REJECTION": 2, "APPROVAL": 0, "DECLINING": 2,
 }
 
 _RE_SUBMIT = re.compile(
@@ -121,8 +122,23 @@ _RE_TOOL = re.compile(
     r"\s*\(\s*['\"]?([^)'\"]*)['\"]?\s*\)",
     re.IGNORECASE,
 )
+# Basic standalone keyword match
 _RE_KEYWORD = re.compile(
-    r"\b(APPROVE(?:D)?|CONDITIONAL(?:_APPROVE)?|REJECT(?:ED)?|DECLINE|DENY)\b",
+    r"\b(APPROVE(?:D)?|APPROVAL|CONDITIONAL(?:_APPROVE)?|REJECT(?:ED|ION)?|DECLINE(?:D)?|DENY|DENIED)\b",
+    re.IGNORECASE,
+)
+# Natural language decision patterns the 3B model commonly generates
+_RE_NL_DECISION = re.compile(
+    r"(?:"
+    r"(?:recommend|suggest|advise|propose|decide|decision(?:\s+is)?|verdict(?:\s+is)?|conclusion(?:\s+is)?)"
+    r"\s*[:\-]?\s*(?:to\s+)?([A-Za-z]+(?:ing)?)"
+    r"|"
+    r"(?:should|must|would|will|shall)\s+(?:be\s+)?([A-Za-z]+(?:ed)?)"
+    r"|"
+    r"(?:I\s+(?:would|will|recommend|suggest|advise))\s+(?:to\s+)?([A-Za-z]+(?:ing)?)"
+    r"|"
+    r"(?:my\s+(?:recommendation|decision|verdict)\s+is)\s+(?:to\s+)?([A-Za-z]+(?:ing)?)"
+    r")",
     re.IGNORECASE,
 )
 
@@ -133,6 +149,20 @@ def _unwrap(text) -> str:
     return str(text) if not isinstance(text, str) else text
 
 
+def _map_nl_word(word: str) -> Optional[int]:
+    """Map a natural language decision word to an action int."""
+    w = word.upper().strip().rstrip("ING").rstrip("ED").rstrip("ION")
+    # Try direct lookup first
+    for key, val in ACTION_MAP.items():
+        if w == key or w == key.rstrip("D") or w == key.rstrip("ED"):
+            return val
+    # Fuzzy prefix matching
+    if w.startswith("APPR"):   return 0
+    if w.startswith("COND"):   return 1
+    if w.startswith("REJ") or w.startswith("DECL") or w.startswith("DEN"): return 2
+    return None
+
+
 def parse_llm_output(text) -> Dict:
     t = _unwrap(text).strip()
     if not t:
@@ -140,6 +170,7 @@ def parse_llm_output(text) -> Dict:
                 "parse_confidence": 0.0, "reasoning": "",
                 "tool_name": None, "tool_args": None, "parse_failure": True}
 
+    # ── 1. Tool call ──────────────────────────────────────────────────
     tm = _RE_TOOL.search(t)
     if tm:
         raw_arg   = tm.group(2).strip().strip("'\"")
@@ -151,14 +182,14 @@ def parse_llm_output(text) -> Dict:
         )
         return {
             "action": 2, "parse_type": "tool_call",
-            "tool_name": tool_name,
-            "tool_arg":  raw_arg,
+            "tool_name": tool_name, "tool_arg": raw_arg,
             "tool_args": tool_args_dict,
             "parse_confidence": 0.95,
-            "reasoning":  f"calling {tool_name}",
+            "reasoning": f"calling {tool_name}",
             "parse_failure": False,
         }
 
+    # ── 2. Explicit submit_decision() call ───────────────────────────
     ms = list(_RE_SUBMIT.finditer(t))
     if ms:
         m   = ms[-1]
@@ -172,16 +203,33 @@ def parse_llm_output(text) -> Dict:
             "parse_failure": False,
         }
 
+    # ── 3. Standalone keyword (APPROVE / REJECT / CONDITIONAL) ──────
     kms = list(_RE_KEYWORD.finditer(t))
     if kms:
         kw  = kms[-1].group(1).upper()
-        act = ACTION_MAP.get(kw, 2)
+        # Normalise variants
+        kw = re.sub(r"(ION|ED|ING)$", "", kw)
+        act = ACTION_MAP.get(kw, ACTION_MAP.get(kw + "ED", 2))
         return {
             "action": act, "parse_type": "fallback_keyword",
-            "parse_confidence": 0.55, "reasoning": t[-100:],
+            "parse_confidence": 0.60, "reasoning": t[-120:],
             "tool_name": None, "tool_args": None, "parse_failure": True,
         }
 
+    # ── 4. Natural-language decision sentence ────────────────────────
+    # Catches: "I recommend rejecting", "decision: approve", "should be rejected"
+    nlm = _RE_NL_DECISION.search(t)
+    if nlm:
+        word = next((g for g in nlm.groups() if g), "")
+        act  = _map_nl_word(word)
+        if act is not None:
+            return {
+                "action": act, "parse_type": "natural_language",
+                "parse_confidence": 0.45, "reasoning": t[-120:],
+                "tool_name": None, "tool_args": None, "parse_failure": True,
+            }
+
+    # ── 5. Hard fall-through — true empty output ─────────────────────
     return {
         "action": 2, "parse_type": "default_reject",
         "parse_confidence": 0.0, "reasoning": "",
@@ -243,21 +291,33 @@ def reward_hard_rules(prompts, completions, hard_rules, has_red_alerts, **kw) ->
 
 
 def reward_format(prompts, completions, **kw) -> List[float]:
-    """R3: output format quality — reward submit_decision with reasoning."""
+    """R3: output format quality — smooth gradient from natural-language to submit_decision.
+
+    Scoring ladder (designed so the model benefits from improving format step by step):
+      final_decision + reasoning (20+ words) : +1.0  ← gold standard
+      final_decision (no / short reasoning)  : +0.3
+      tool_call                              : +0.1  (exploration bonus)
+      fallback_keyword  (REJECT/APPROVE word): +0.2  ← was -0.5, now positive
+      natural_language  (sentence decision)  :  0.0  ← new tier (was default_reject)
+      default_reject    (truly empty/garbage): -0.2  ← was -1.0, now mild penalty
+    """
     scores = []
     for comp in completions:
         p   = parse_llm_output(comp)
         rsn = p.get("reasoning", "")
-        if p["parse_type"] == "final_decision" and len(rsn) > 20:
+        pt  = p["parse_type"]
+        if pt == "final_decision" and len(rsn) > 20:
             s = 1.0
-        elif p["parse_type"] == "final_decision":
+        elif pt == "final_decision":
             s = 0.3
-        elif p["parse_type"] == "tool_call":
+        elif pt == "tool_call":
             s = 0.1
-        elif p["parse_type"] == "fallback_keyword":
-            s = -0.5
-        else:
-            s = -1.0
+        elif pt == "fallback_keyword":
+            s = 0.2   # positive: model got the direction right even without format
+        elif pt == "natural_language":
+            s = 0.0   # neutral: model reasoned but didn't use the function
+        else:         # default_reject — truly empty or unparseable
+            s = -0.2  # mild nudge to do something
         scores.append(s)
     return scores
 
@@ -285,11 +345,12 @@ def combined_reward(prompts, completions, ground_truth_pd, hard_rules,
     return [a + b + c + d for a, b, c, d in zip(r1, r2, r3, r4)]
 
 
-print("✅ Reward functions v4 loaded")
+print("✅ Reward functions v5 loaded (robust parser + smooth R3 gradient)")
 print("   R1 correctness  [-2.0,+2.0] — +0.5 bonus for submit_decision")
 print("   R2 hard_rules   [-2.0,+0.5]")
-print("   R3 format       [-1.0,+1.0] — +1.0 bonus for submit_decision+reasoning")
+print("   R3 format (v5)  [-0.2,+1.0] — smooth ladder: natural_lang=0, keyword=+0.2, submit=+1.0")
 print("   R4 portfolio    [-0.8,+0.3]")
+print("   Parser (v5)     natural_language tier added — catches analyst prose")
 
 
 # ════════════════════════════════════════════════════════════════════
