@@ -265,11 +265,8 @@ def run_episode(env: EnvHTTPClient, agent: LocalLLMAgent,
     done       = bool(reset_resp.get("done", False) or obs_data.get("done", False))
 
     rewards:     list[float] = []
-    decisions:   list[str]  = []
-    episode_score = 0.0
-    breakdown:   dict = {}
+    decisions:   list[int]   = []   # store numeric for baseline compat
     step = 0
-    last_resp:   dict = {}
 
     while not done and step < num_steps:
         step += 1
@@ -278,52 +275,66 @@ def run_episode(env: EnvHTTPClient, agent: LocalLLMAgent,
         action_str = DECISION_LABELS[decision]
 
         step_resp = env.step(action={"decision": decision}, episode_id=episode_id)
-        last_resp = step_resp                              # keep reference for post-loop
         obs_data  = step_resp.get("observation", step_resp)
         reward    = float(step_resp.get("reward", 0.0) or 0.0)
         done      = bool(step_resp.get("done", False) or obs_data.get("done", False))
 
         rewards.append(reward)
-        decisions.append(action_str)
+        decisions.append(decision)
 
         print(f"    Step {step:2d}: {action_str:<12} | reward={reward:+.2f} | "
               f"cumulative={sum(rewards):+.2f}")
 
-        # Debug: print raw response keys on first step so we know the structure
-        if step == 1:
-            print(f"    [debug] resp keys: {list(step_resp.keys())}")
+    # ── Compute local metrics from step rewards ──────────────────────────
+    # The HTTP API only returns {observation, reward, done} per step.
+    # episode_score and breakdown are NOT in the response — compute locally.
+    n_steps       = len(rewards)
+    correct       = sum(1 for r in rewards if r > 0)
+    accuracy      = round(correct / n_steps, 4) if n_steps else 0.0
+    total_reward  = round(sum(rewards), 4)
 
-        if done:
-            # episode_score may be at top level OR inside observation
-            episode_score = (
-                float(step_resp.get("episode_score") or 0.0)
-                or float(obs_data.get("episode_score") or 0.0)
-            )
-            breakdown = (
-                step_resp.get("score_breakdown")
-                or obs_data.get("score_breakdown")
-                or {}
-            )
+    # Approximate hard-rule compliance:
+    # Large negative rewards (< -5) typically indicate hard-rule violations
+    hr_violations = sum(1 for r in rewards if r < -5.0)
+    hr_compliance = round(1.0 - (hr_violations / n_steps), 4) if n_steps else 1.0
 
-    # Post-loop fallback: try both locations
-    if episode_score == 0.0:
-        episode_score = (
-            float(last_resp.get("episode_score") or 0.0)
-            or float(obs_data.get("episode_score") or 0.0)
-        )
-    if not breakdown:
-        breakdown = (
-            last_resp.get("score_breakdown")
-            or obs_data.get("score_breakdown")
-            or {}
-        )
+    # Survival: did we complete all steps without early termination?
+    survived      = step >= num_steps or not done
+    survival_rate = 1.0 if survived else round(step / num_steps, 4)
 
-    print(f"  Score: {episode_score:.4f} | Steps: {step}")
+    # NPA proxy: count steps with delayed negative rewards (-1 to -5 range)
+    npa_signals   = sum(1 for r in rewards if -5.0 <= r < 0)
+    npa_rate      = round(npa_signals / max(n_steps, 1), 4)
+
+    # Capital utilization: approvals / total decisions
+    n_approve     = decisions.count(0)
+    cap_util      = round(n_approve / max(n_steps, 1), 4)
+
+    # Weighted score (matches baseline_results.json format)
+    score = round(accuracy * 0.5 + hr_compliance * 0.3 + survival_rate * 0.2, 4)
+
+    breakdown = {
+        "accuracy":              accuracy,
+        "correct_decisions":     correct,
+        "total_decisions":       n_steps,
+        "hard_rule_compliance":  hr_compliance,
+        "forensic_handling":     hr_compliance,  # proxy
+        "npa_count":             npa_signals,
+        "npa_rate":              npa_rate,
+        "crar":                  1.0,            # not available via HTTP
+        "capital_utilization":   cap_util,
+        "survival_rate":         survival_rate,
+        "episode_terminated":    done and step < num_steps,
+        "termination_reason":    "",
+    }
+
+    print(f"  Score: {score:.4f} | Accuracy: {accuracy:.1%} | "
+          f"HR comply: {hr_compliance:.1%} | Reward: {total_reward:+.2f}")
 
     return {
         "task_id":      task_id,
-        "score":        round(episode_score, 4),
-        "total_reward": round(sum(rewards), 4),
+        "score":        score,
+        "total_reward": total_reward,
         "decisions":    decisions,
         "breakdown":    breakdown,
     }
@@ -406,9 +417,10 @@ def main() -> None:
     print(f"  {'─'*52}")
     for task_id, r in results.items():
         decs  = r["decisions"]
-        n_app = decs.count("APPROVE")
-        n_con = decs.count("CONDITIONAL")
-        n_rej = decs.count("REJECT")
+        # decisions are stored as ints: 0=APPROVE, 1=CONDITIONAL, 2=REJECT
+        n_app = decs.count(0)
+        n_con = decs.count(1)
+        n_rej = decs.count(2)
         print(f"  {task_id:<8} {r['score']:>7.4f} {r['total_reward']:>8.2f} "
               f"{len(decs):>6}   A:{n_app} C:{n_con} R:{n_rej}")
 
