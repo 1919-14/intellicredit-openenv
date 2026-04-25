@@ -128,14 +128,24 @@ def parse_llm_output(text) -> Dict[str, Any]:
     # Priority 1: tool call
     tm = _RE_TOOL.search(t)
     if tm:
-        raw_arg = tm.group(2).strip().strip("'\"")
+        raw_arg   = tm.group(2).strip().strip("'\"")
+        tool_name = tm.group(1).lower()
+        # env-compatible: match actual parameter name in tool_executor.py
+        #   get_financial_report(company_id)    → {"company_id": ...}
+        #   check_compliance_status(company_id) → {"company_id": ...}
+        #   get_market_intelligence(sector)     → {"sector": ...}
+        tool_args_dict = (
+            {"sector": raw_arg}
+            if "market_intelligence" in tool_name
+            else {"company_id": raw_arg}
+        )
         return {
             "action": 2, "parse_type": "tool_call",
-            "tool_name": tm.group(1).lower(),
-            "tool_arg":  raw_arg,                       # convenience: plain string
-            "tool_args": {"company_id": raw_arg},       # env-compatible: dict form
+            "tool_name": tool_name,
+            "tool_arg":  raw_arg,          # convenience: plain string
+            "tool_args": tool_args_dict,   # env-compatible: correct key per tool
             "parse_confidence": 0.95,
-            "reasoning":  f"calling {tm.group(1)}",
+            "reasoning":  f"calling {tool_name}",
             "parse_failure": False,
         }
     # Priority 2: submit_decision
