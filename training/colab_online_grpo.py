@@ -362,6 +362,7 @@ print("✅ Memory bank ready (cross-episode reflection)")
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 import torch.nn.functional as F
+import warnings
 
 print(f"\n🔄 Loading {MODEL_NAME}...")
 bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
@@ -369,7 +370,16 @@ bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
 
 model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, quantization_config=bnb_config,
     device_map="auto", trust_remote_code=True)
+
+# FIX 1: prepare for kbit training (enables gradient checkpointing)
 model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+
+# FIX 2: CRITICAL — without this, gradient checkpointing cannot propagate
+# gradients through quantized embeddings → all gradients are None → no learning
+model.enable_input_require_grads()
+
+# FIX 3: explicitly disable KV cache (incompatible with gradient checkpointing)
+model.config.use_cache = False
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
 if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
@@ -380,8 +390,11 @@ lora_cfg = LoraConfig(r=16, lora_alpha=32,
 model = get_peft_model(model, lora_cfg)
 model.print_trainable_parameters()
 
+# Suppress the use_reentrant checkpoint warning (safe to ignore with our setup)
+warnings.filterwarnings("ignore", message=".*use_reentrant.*", category=UserWarning)
+
 optimizer = torch.optim.AdamW([p for p in model.parameters() if p.requires_grad], lr=LR, weight_decay=0.01)
-print("✅ Model + optimizer ready")
+print("✅ Model + optimizer ready (gradient checkpointing + input_require_grads enabled)")
 
 # ═══ CELL 9: REFERENCE MODEL ═══
 print("\n🔄 Loading reference model (frozen)...")
