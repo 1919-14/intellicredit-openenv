@@ -24,7 +24,7 @@ tags: [reinforcement-learning, grpo, fintech, multi-agent, llm-finetuning, opene
 
 </div>
 
-*By **V S S K Sai Narayana** & **Sujeet Jaiswal** — Meta × Hugging Face OpenEnv Hackathon 2025*
+*By **V S S K Sai Narayana** & **Sujeet Jaiswal** — Meta × Hugging Face OpenEnv Hackathon 2026*
 
 ---
 
@@ -424,7 +424,8 @@ These four fixes were the difference between training that appeared to run (metr
 
 ## What the Training Curves Tell Us
 
-![GRPO Training Curves — Mistral-7B on A100](./assets/training_curves.png)
+<img width="1600" height="1142" alt="c54ed1cb-564e-40bd-81be-d56a76d9713f" src="https://github.com/user-attachments/assets/d225eb30-db76-4edb-bbc2-b429c6222095" />
+
 
 *Figure 1: IntelliCredit GRPO v2 training curves across three curriculum stages (dashed lines mark stage transitions). The smoothed lines reveal the signal beneath the noise of stochastic generation.*
 
@@ -443,8 +444,8 @@ Reading these four panels tells the full story of what the model learned and whe
 ---
 
 ## Results: Before vs. After GRPO
+<img width="1600" height="884" alt="051701af-7e29-4e6c-8895-f0c9b6569cf2" src="https://github.com/user-attachments/assets/53dfddff-d17c-4b63-8d22-a763f25c2bd7" />
 
-![IntelliCredit · Baseline vs. Post-Training (GRPO)](./assets/comparison.png)
 
 *Figure 2: Per-task, per-metric comparison of base Mistral-7B-Instruct-v0.3 (blue) versus GRPO-trained IntelliCredit model (green). Green headers indicate improvement; all metrics either improved or held steady — zero regressions across all 24 evaluated metric-task combinations.*
 
@@ -686,7 +687,7 @@ We believe in honest assessment of what IntelliCredit-X does not yet handle:
   title     = {IntelliCredit-X: A Multi-Agent Constrained MDP for MSME Credit
                Appraisal with GRPO Fine-Tuning},
   author    = {Narayana, V S S K Sai and Jaiswal, Sujeet},
-  year      = {2025},
+  year      = {2026},
   note      = {Meta × Hugging Face OpenEnv Hackathon},
   url       = {https://huggingface.co/spaces/vssksn/intellicredit-openenv}
 }
@@ -696,7 +697,7 @@ We believe in honest assessment of what IntelliCredit-X does not yet handle:
 
 ## Acknowledgements
 
-Built for the **Meta × Hugging Face OpenEnv Hackathon 2025** by **V S S K Sai Narayana** and **Sujeet Jaiswal**.
+Built for the **Meta × Hugging Face OpenEnv Hackathon 2026** by **V S S K Sai Narayana** and **Sujeet Jaiswal**.
 
 Special thanks to the **OpenEnv framework** for providing the standardized RL environment interface that made this submission possible, to **Unsloth** for making 4-bit QLoRA training on a single A100 fast enough to run the full 3-stage curriculum in 45 minutes, and to the **Indian banking professionals** who validated the problem formulation and confirmed that the hard rules reflect real RBI regulatory requirements.
 
@@ -710,5 +711,5 @@ IntelliCredit-X is 100% open source. Whether you are a researcher studying credi
 
 ---
 *IntelliCredit-X — Multi-Agent RL Environment for MSME Credit Appraisal*
-*V S S K Sai Narayana & Sujeet Jaiswal | Meta × Hugging Face OpenEnv Hackathon 2025*
+*V S S K Sai Narayana & Sujeet Jaiswal | Meta × Hugging Face OpenEnv Hackathon 2026*
 *MIT License — [GitHub](https://github.com/1919-14/intellicredit-openenv)*
