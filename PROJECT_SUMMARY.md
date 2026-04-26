@@ -246,7 +246,7 @@ Episode N+1 → Inject top 5 lessons into system prompt Layer 3
 
 ## 📊 Results — GRPO Fine-Tuned vs. Base Model
 
-![Baseline vs Post-Training GRPO](./docs/assets/comparison.png)
+<img width="1600" height="884" alt="051701af-7e29-4e6c-8895-f0c9b6569cf2" src="https://github.com/user-attachments/assets/70f32a68-ef54-486e-974d-7ce3abaf6964" />
 
 | Task | Metric | Base Mistral-7B | GRPO Model | Delta |
 |------|--------|----------------|-----------|-------|
@@ -268,8 +268,8 @@ Episode N+1 → Inject top 5 lessons into system prompt Layer 3
 ---
 
 ## 🧠 Training Curves
+<img width="1600" height="1142" alt="c54ed1cb-564e-40bd-81be-d56a76d9713f" src="https://github.com/user-attachments/assets/bae3f792-4213-4905-bacd-84358c44073b" />
 
-![GRPO Training Curves](./docs/assets/training_curves.png)
 
 | Panel | What It Shows |
 |-------|---------------|
@@ -331,7 +331,7 @@ The biggest reward jump happens at the Stage 1→2 transition (when forensic ale
 ## 📚 Citation
 
 ```bibtex
-@article{intellicredit2025,
+@article{intellicredit2026,
   title   = {IntelliCredit-X: A Multi-Agent Constrained MDP for MSME Credit
              Appraisal with GRPO Fine-Tuning},
   author  = {Narayana, V S S K Sai and Jaiswal, Sujeet},
