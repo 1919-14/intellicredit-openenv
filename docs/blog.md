@@ -1,6 +1,6 @@
 ---
 title: "IntelliCredit-X: Teaching an LLM to Think Like a Credit Officer Using Multi-Agent RL and GRPO"
-thumbnail: ./assets/comparison.png
+thumbnail: https://github.com/user-attachments/assets/53dfddff-d17c-4b63-8d22-a763f25c2bd7
 authors:
 - user: vssksn
   guest: true

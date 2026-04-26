@@ -98,4 +98,4 @@ evaluation/charts/
 *.pickle
 
 # BUT keep the project source JSONL fixtures if any are tiny
-# (override the *.jsonl rule above for specific files if needed)
+# (override the *.jsonl rule above for specific files if needed)docs/assets/*.png
