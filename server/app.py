@@ -120,12 +120,203 @@ app.description = _DESCRIPTION
 app.version = "2.0.0"
 
 
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 def read_root():
-    """Redirect root to Swagger UI for Hugging Face Spaces."""
-    return RedirectResponse(url="/docs")
+    """IntelliCredit project landing page."""
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IntelliCredit-X — Multi-Agent RL for MSME Credit Appraisal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #0a0e1a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .hero {
+      width: 100%;
+      max-width: 900px;
+      padding: 60px 24px 40px;
+      text-align: center;
+    }
+    .badge-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      justify-content: center; margin-bottom: 32px;
+    }
+    .badge-row a img { height: 22px; border-radius: 4px; }
+    h1 {
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 800;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.2;
+      margin-bottom: 16px;
+    }
+    .subtitle {
+      font-size: 1.05rem;
+      color: #94a3b8;
+      max-width: 640px;
+      margin: 0 auto 40px;
+      line-height: 1.7;
+    }
+    .cards {
+      width: 100%;
+      max-width: 900px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 16px;
+      padding: 0 24px 24px;
+    }
+    .card {
+      background: linear-gradient(145deg, #111827, #1e293b);
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      padding: 24px;
+      text-decoration: none;
+      color: inherit;
+      transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      border-color: #667eea;
+      box-shadow: 0 8px 32px rgba(102, 126, 234, 0.2);
+    }
+    .card-icon { font-size: 2rem; margin-bottom: 12px; display: block; }
+    .card-title { font-size: 1rem; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+    .card-desc { font-size: 0.83rem; color: #64748b; line-height: 1.6; }
+    .api-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 32px auto;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      color: #fff;
+      border-radius: 50px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 1rem;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      box-shadow: 0 4px 24px rgba(102, 126, 234, 0.4);
+    }
+    .api-btn:hover { opacity: 0.9; transform: scale(1.03); }
+    .results-bar {
+      width: 100%;
+      max-width: 900px;
+      background: linear-gradient(145deg, #111827, #1e293b);
+      border: 1px solid #1e293b;
+      border-radius: 16px;
+      padding: 28px 32px;
+      margin: 8px 24px 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      justify-content: space-around;
+    }
+    .stat { text-align: center; }
+    .stat-num {
+      font-size: 1.9rem; font-weight: 800;
+      background: linear-gradient(135deg, #667eea, #f093fb);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .stat-label { font-size: 0.78rem; color: #64748b; margin-top: 2px; }
+    footer {
+      margin-top: 48px;
+      padding: 24px;
+      font-size: 0.8rem;
+      color: #334155;
+      text-align: center;
+    }
+    footer a { color: #667eea; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="badge-row">
+      <a href="https://huggingface.co/spaces/vssksn/intellicredit-openenv" target="_blank">
+        <img src="https://img.shields.io/badge/🤗_Space-Live_Demo-blue" alt="HF Space" /></a>
+      <a href="https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset" target="_blank">
+        <img src="https://img.shields.io/badge/🤗_Dataset-GRPO_Data-green" alt="Dataset" /></a>
+      <a href="https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo" target="_blank">
+        <img src="https://img.shields.io/badge/🤗_Model-Mistral--7B_GRPO-orange" alt="Model" /></a>
+      <a href="https://github.com/1919-14/intellicredit-openenv" target="_blank">
+        <img src="https://img.shields.io/badge/GitHub-intellicredit--openenv-black" alt="GitHub" /></a>
+    </div>
+    <h1>🏦 IntelliCredit-X</h1>
+    <p class="subtitle">
+      A multi-agent RL environment where Mistral-7B learns to act as a Senior Credit Officer —
+      investigating fraud signals, managing a live loan portfolio across 50-step episodes,
+      and respecting hard RBI mandates. Trained via 2-stage GRPO on the live environment.
+    </p>
+    <a class="api-btn" href="/docs">⚡ Open Interactive API (Swagger UI)</a>
+  </div>
+
+  <div class="results-bar">
+    <div class="stat"><div class="stat-num">55D</div><div class="stat-label">Observation Space</div></div>
+    <div class="stat"><div class="stat-num">50</div><div class="stat-label">Steps per Episode</div></div>
+    <div class="stat"><div class="stat-num">3</div><div class="stat-label">Agents</div></div>
+    <div class="stat"><div class="stat-num">10×</div><div class="stat-label">Reward Improvement (Task 3)</div></div>
+    <div class="stat"><div class="stat-num">−8.3%</div><div class="stat-label">NPA Rate After GRPO</div></div>
+  </div>
+
+  <div class="cards" style="margin-top:24px">
+    <a class="card" href="https://huggingface.co/spaces/vssksn/intellicredit-openenv/blob/main/docs/blog.md" target="_blank">
+      <span class="card-icon">📝</span>
+      <div class="card-title">Technical Blog</div>
+      <div class="card-desc">Architecture, 2-stage GRPO training pipeline, and full benchmark results.</div>
+    </a>
+    <a class="card" href="https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo" target="_blank">
+      <span class="card-icon">🤖</span>
+      <div class="card-title">Fine-Tuned Model</div>
+      <div class="card-desc">Mistral-7B post-trained on live environment interactions via online GRPO.</div>
+    </a>
+    <a class="card" href="https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset" target="_blank">
+      <span class="card-icon">📊</span>
+      <div class="card-title">Training Dataset</div>
+      <div class="card-desc">2,000 GRPO prompts across 5 task levels — published on Hugging Face.</div>
+    </a>
+    <a class="card" href="https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing" target="_blank">
+      <span class="card-icon">🚀</span>
+      <div class="card-title">Stage 1 — Offline GRPO</div>
+      <div class="card-desc">Mistral-7B + Unsloth on A100, ~45 min. Pre-training on 2,000 curated prompts.</div>
+    </a>
+    <a class="card" href="https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/main/training/colab_online_grpo.ipynb" target="_blank">
+      <span class="card-icon">🌍</span>
+      <div class="card-title">Stage 2 — Online GRPO</div>
+      <div class="card-desc">Post-training on this live environment. Every reward from the real /step endpoint.</div>
+    </a>
+    <a class="card" href="https://github.com/1919-14/intellicredit-openenv" target="_blank">
+      <span class="card-icon">💻</span>
+      <div class="card-title">GitHub Repository</div>
+      <div class="card-desc">Full source code — environment, training, evaluation, MIT License.</div>
+    </a>
+  </div>
+
+  <footer>
+    Built for <strong>Meta × Hugging Face OpenEnv Hackathon 2026</strong> by
+    <a href="https://huggingface.co/vssksn" target="_blank">vssksn</a> &amp;
+    <a href="https://github.com/1919-14" target="_blank">Sujeet Jaiswal</a> ·
+    <a href="/docs">API Docs</a> ·
+    <a href="/info">JSON Info</a> ·
+    <a href="https://github.com/1919-14/intellicredit-openenv/blob/main/LICENSE">MIT License</a>
+  </footer>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 
 @app.get("/health")
 def health_check():
