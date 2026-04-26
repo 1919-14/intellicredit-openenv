@@ -17,15 +17,27 @@ pinned: false
 [![Model](https://img.shields.io/badge/🤗_Model-Mistral--7B_GRPO-orange)](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo)
 [![GitHub](https://img.shields.io/badge/GitHub-intellicredit--openenv-black)](https://github.com/1919-14/intellicredit-openenv)
 [![API Docs](https://img.shields.io/badge/API-Swagger_UI-purple)](https://vssksn-intellicredit-openenv.hf.space/docs)
-[![Blog](https://img.shields.io/badge/📖_Blog-Full_Writeup-teal)](./docs/blog.md)
+[![Blog](https://img.shields.io/badge/📖_Blog-Full_Technical_Writeup-teal)](./docs/blog.md)
+[![Colab](https://img.shields.io/badge/Colab-GRPO_Training_Notebook-yellow)](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing)
 [![License](https://img.shields.io/badge/License-MIT-red)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0-orange)](./VERSIONING.md)
+[![Version](https://img.shields.io/badge/version-2.0-orange)](./PROJECT_SUMMARY.md)
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blueviolet)](https://github.com/meta-pytorch/openenv)
 
 **By V S S K Sai Narayana & Sujeet Jaiswal**  
 *Meta × Hugging Face OpenEnv Hackathon 2026*
 
 </div>
+
+---
+
+## 📖 Want the Full Story? Read the Blog
+
+> ### ➡️ [IntelliCredit-X: Teaching an LLM to Think Like a Credit Officer Using Multi-Agent RL and GRPO](./docs/blog.md)
+>
+> *~5,000 words · Fully illustrated · Deep technical walkthrough*  
+> Covers: the real-world MSME problem → 3-agent architecture → 55D observation space → tool calling system → sparse reward design → GRPO 3-stage curriculum → what the training curves actually tell you → qualitative before/after examples → 4 critical bugs we had to fix → honest limitations.
+>
+> **[🚀 Read the Blog →](./docs/blog.md)**
 
 ---
 
@@ -197,7 +209,7 @@ Config: rank=16 QLoRA, seq_len=2048, 8 generations/prompt
         batch=2 + grad_accum=8 (effective=16), KL β=0.001
 ```
 
-**Training script:** [`training/colab_grpo_3b_v2.py`](./training/colab_grpo_3b_v2.py)
+**Training Notebook:** [📓 Open in Colab](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing)
 
 ---
 
@@ -341,7 +353,8 @@ intellicredit-openenv/
 | 💻 **GitHub (v2 branch)** | [github.com/1919-14/intellicredit-openenv/tree/v2](https://github.com/1919-14/intellicredit-openenv/tree/v2) |
 | 📖 **API Swagger** | [vssksn-intellicredit-openenv.hf.space/docs](https://vssksn-intellicredit-openenv.hf.space/docs) |
 | 📝 **Full Blog Post** | [docs/blog.md](./docs/blog.md) |
-| 📊 **Project Summary** | [VERSIONING.md](./VERSIONING.md) |
+| 📓 **Colab Training Notebook** | [Open in Colab](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing) |
+| 📊 **Project Summary** | [PROJECT_SUMMARY.md](./PROJECT_SUMMARY.md) |
 | 📋 **Env Info API** | [/info endpoint](https://vssksn-intellicredit-openenv.hf.space/info) |
 
 ---
