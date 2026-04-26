@@ -210,6 +210,18 @@ def read_root():
     footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center;font-size:0.8rem;color:var(--muted);}
     footer a{color:var(--accent);text-decoration:none;}
     footer a:hover{text-decoration:underline;}
+
+    .img-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-top:8px;}
+    .img-label{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--surface2);}
+    .fig-tag{font-size:0.72rem;font-weight:700;padding:3px 10px;border-radius:50px;background:rgba(14,165,233,0.15);color:var(--accent);letter-spacing:0.05em;}
+    .fig-title{font-size:0.85rem;font-weight:600;color:var(--muted);}
+    .img-wrap{padding:16px;background:#020810;text-align:center;}
+    .img-wrap img{max-width:100%;height:auto;border-radius:8px;display:block;margin:0 auto;}
+    .img-caption{padding:20px;border-top:1px solid var(--border);}
+    .caption-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;}
+    .citem{display:flex;flex-direction:column;gap:4px;}
+    .cnum{font-size:0.8rem;font-weight:700;}
+    .cdesc{font-size:0.78rem;color:var(--muted);line-height:1.5;}
     @media(max-width:640px){nav{padding:12px 16px;}.nav-links{display:none;}.hero{padding:48px 16px 36px;}}
   </style>
 </head>
@@ -288,6 +300,63 @@ def read_root():
     <tr><td>Task 3</td><td><span class="th">Hard</span></td><td>NPA Rate</td><td>16.7%</td><td>8.3%</td><td class="up">-8.3% ✓</td></tr>
   </table></div>
 </section>
+
+<section class="w">
+  <div class="stag">Training Curves</div>
+  <div class="stitle">What the Training Curves Tell Us</div>
+  <p class="ssub">
+    Four panels reveal the full story of what the model learned and when — across three curriculum stages (dashed lines mark transitions).
+    <strong style="color:var(--text)">Mean reward climbs from −2.0 to +1.0</strong>, format compliance rises from 0% to 65%,
+    and KL divergence stays safely below 0.12, confirming the model changed without forgetting language capabilities.
+  </p>
+  <div class="img-card">
+    <div class="img-label">
+      <span class="fig-tag">Figure 1</span>
+      <span class="fig-title">GRPO v2 Training Curves — 3-Stage Curriculum</span>
+    </div>
+    <div class="img-wrap">
+      <img src="https://github.com/user-attachments/assets/d225eb30-db76-4edb-bbc2-b429c6222095"
+           alt="IntelliCredit GRPO Training Curves" loading="lazy"/>
+    </div>
+    <div class="img-caption">
+      <div class="caption-grid">
+        <div class="citem"><span class="cnum" style="color:#f87171">GRPO Loss</span><span class="cdesc">Starts near zero, climbs to 0.02–0.05 — healthy policy divergence from reference.</span></div>
+        <div class="citem"><span class="cnum" style="color:#60a5fa">Mean Reward</span><span class="cdesc">−2.0 → 0 at Stage 1 end → stable +0.5–1.0. Stage 3 dip then re-stabilises.</span></div>
+        <div class="citem"><span class="cnum" style="color:#c084fc">KL Divergence</span><span class="cdesc">Grows 0→0.08, stays below 0.12 threshold — genuine learning, no catastrophic forgetting.</span></div>
+        <div class="citem"><span class="cnum" style="color:#2dd4bf">submit_pct</span><span class="cdesc">Format compliance: 0% → 40–65%. The model acquired the vocabulary of the task.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="w">
+  <div class="stag">Evaluation</div>
+  <div class="stitle">Before vs. After GRPO — Full Comparison</div>
+  <p class="ssub">
+    Per-task, per-metric comparison of base Mistral-7B (blue) vs. GRPO-trained IntelliCredit model (green).
+    <strong style="color:var(--accent2)">Zero regressions across all 24 metric-task combinations.</strong>
+    The hardest task (Task 3) shows the most dramatic improvement — NPA rate cut in half, total reward up 10×.
+  </p>
+  <div class="img-card">
+    <div class="img-label">
+      <span class="fig-tag">Figure 2</span>
+      <span class="fig-title">Base Mistral-7B vs. GRPO IntelliCredit — All Tasks</span>
+    </div>
+    <div class="img-wrap">
+      <img src="https://github.com/user-attachments/assets/53dfddff-d17c-4b63-8d22-a763f25c2bd7"
+           alt="IntelliCredit GRPO Results Comparison" loading="lazy"/>
+    </div>
+    <div class="img-caption">
+      <div class="caption-grid">
+        <div class="citem"><span class="cnum" style="color:var(--accent2)">Task 1 (Easy)</span><span class="cdesc">Accuracy +6.7%, capital utilization +20%. The GRPO model deploys more capital into correctly identified safe loans.</span></div>
+        <div class="citem"><span class="cnum" style="color:var(--accent)">Task 2 (Medium)</span><span class="cdesc">Both models hit perfect Task Score (1.000). GRPO squeezes +0.28 extra reward from better capital efficiency.</span></div>
+        <div class="citem"><span class="cnum" style="color:var(--accent3)">Task 3 (Hard)</span><span class="cdesc">Total reward 0.215 → 2.491 (+10×). NPA 16.7% → 8.3% (halved). True portfolio-level risk management learned.</span></div>
+        <div class="citem"><span class="cnum" style="color:var(--text)">Key Insight</span><span class="cdesc">Model learned that surface improvement + behavioural red flags = escalating risk. It calls tools; base model doesn't.</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section class="w">
   <div class="stag">Quick Start</div>
   <div class="stitle">Start an Episode in 2 Calls</div>
