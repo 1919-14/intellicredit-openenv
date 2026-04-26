@@ -183,8 +183,8 @@ def read_root():
     .agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;}
     .ac{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;display:flex;gap:16px;transition:border-color 0.2s;}
     .ac:hover{border-color:var(--accent);}
-    .ai{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;flex-shrink:0;}
-    .ai.b{background:rgba(14,165,233,0.15);}.ai.g{background:rgba(16,185,129,0.15);}.ai.a{background:rgba(245,158,11,0.15);}
+    .ai{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+    .ai.b{background:rgba(14,165,233,0.15);color:var(--accent);}.ai.g{background:rgba(16,185,129,0.15);color:var(--accent2);}.ai.a{background:rgba(245,158,11,0.15);color:var(--accent3);}
     .an{font-weight:700;margin-bottom:4px;}.ar{font-size:0.78rem;color:var(--accent);font-weight:600;margin-bottom:8px;}.ad{font-size:0.82rem;color:var(--muted);line-height:1.5;}
     .rtable{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
     .rtable table{width:100%;border-collapse:collapse;font-size:0.84rem;}
@@ -204,7 +204,7 @@ def read_root():
     .resources{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;}
     .rc{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;text-decoration:none;color:inherit;display:flex;gap:14px;align-items:flex-start;transition:border-color 0.2s,transform 0.2s;}
     .rc:hover{border-color:var(--accent2);transform:translateY(-3px);}
-    .ri{width:42px;height:42px;border-radius:10px;background:var(--dim);display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0;}
+    .ri{width:42px;height:42px;border-radius:10px;background:var(--dim);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:var(--accent);}
     .rt{font-size:0.9rem;font-weight:700;margin-bottom:4px;}.rd{font-size:0.78rem;color:var(--muted);line-height:1.5;}
     .ra{margin-left:auto;color:var(--muted);font-size:0.9rem;flex-shrink:0;margin-top:2px;}
     footer{border-top:1px solid var(--border);padding:32px 24px;text-align:center;font-size:0.8rem;color:var(--muted);}
@@ -222,12 +222,18 @@ def read_root():
     .citem{display:flex;flex-direction:column;gap:4px;}
     .cnum{font-size:0.8rem;font-weight:700;}
     .cdesc{font-size:0.78rem;color:var(--muted);line-height:1.5;}
+
+    svg.ic{display:inline-block;vertical-align:middle;flex-shrink:0;}
+    .ic-sm{width:16px;height:16px;stroke-width:2;}
+    .ic-md{width:20px;height:20px;stroke-width:1.75;}
+    .ic-lg{width:26px;height:26px;stroke-width:1.5;}
+    .ic-xl{width:32px;height:32px;stroke-width:1.4;}
     @media(max-width:640px){nav{padding:12px 16px;}.nav-links{display:none;}.hero{padding:48px 16px 36px;}}
   </style>
 </head>
 <body>
 <nav>
-  <a class="nav-brand" href="/">🏦 <span>IntelliCredit-X</span></a>
+  <a class="nav-brand" href="/"><i data-lucide="landmark" class="ic ic-md" aria-hidden="true"></i> <span>IntelliCredit-X</span></a>
   <div class="nav-links">
     <a href="https://huggingface.co/spaces/vssksn/intellicredit-openenv/blob/main/docs/blog.md" target="_blank">Blog</a>
     <a href="https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo" target="_blank">Model</a>
@@ -245,9 +251,9 @@ def read_root():
     trained via <strong>2-stage GRPO</strong> directly on the live environment.
   </p>
   <div class="hero-actions">
-    <a class="btn-p" href="/docs">⚡ Try the Live API</a>
-    <a class="btn-g" href="https://huggingface.co/spaces/vssksn/intellicredit-openenv/blob/main/docs/blog.md" target="_blank">📖 Read the Blog</a>
-    <a class="btn-g" href="https://github.com/1919-14/intellicredit-openenv" target="_blank">⭐ GitHub</a>
+    <a class="btn-p" href="/docs"><i data-lucide="zap" class="ic ic-sm" aria-hidden="true"></i> Try the Live API</a>
+    <a class="btn-g" href="https://huggingface.co/spaces/vssksn/intellicredit-openenv/blob/main/docs/blog.md" target="_blank"><i data-lucide="book-open" class="ic ic-sm" aria-hidden="true"></i> Read the Blog</a>
+    <a class="btn-g" href="https://github.com/1919-14/intellicredit-openenv" target="_blank"><i data-lucide="github" class="ic ic-sm" aria-hidden="true"></i> GitHub</a>
   </div>
   <div class="badges">
     <a href="https://huggingface.co/spaces/vssksn/intellicredit-openenv" target="_blank"><img src="https://img.shields.io/badge/🤗_Space-Live_Demo-0ea5e9?style=flat" alt="HF Space"/></a>
@@ -282,9 +288,9 @@ def read_root():
   <div class="stitle">Three Agents, One Environment</div>
   <p class="ssub">The environment simulates the full credit ecosystem — not just individual decisions.</p>
   <div class="agents">
-    <div class="ac"><div class="ai b">🏦</div><div><div class="an">Credit Officer (LLM)</div><div class="ar">Your Agent Under Training</div><div class="ad">Mistral-7B fine-tuned via GRPO. Receives 55D obs, calls investigation tools, submits APPROVE / CONDITIONAL / REJECT with written reasoning.</div></div></div>
-    <div class="ac"><div class="ai g">📋</div><div><div class="an">Borrower Agent</div><div class="ar">Adversarial Pressure</div><div class="ad">Rejected borrowers reapply up to 3x with improved surface metrics but unchanged hidden PD — forcing the agent to learn true risk signals.</div></div></div>
-    <div class="ac"><div class="ai a">⚖️</div><div><div class="an">Regulator Agent</div><div class="ar">Compliance Enforcer</div><div class="ad">Audits portfolio at steps ≈10/20/30/40/50 (±1 jitter). Checks NPA rate, CRAR, sector concentration. Episode shutdown on 3 consecutive fails.</div></div></div>
+    <div class="ac"><div class="ai b"><i data-lucide="landmark" class="ic ic-xl" aria-hidden="true"></i></div><div><div class="an">Credit Officer (LLM)</div><div class="ar">Your Agent Under Training</div><div class="ad">Mistral-7B fine-tuned via GRPO. Receives 55D obs, calls investigation tools, submits APPROVE / CONDITIONAL / REJECT with written reasoning.</div></div></div>
+    <div class="ac"><div class="ai g"><i data-lucide="clipboard-list" class="ic ic-xl" aria-hidden="true"></i></div><div><div class="an">Borrower Agent</div><div class="ar">Adversarial Pressure</div><div class="ad">Rejected borrowers reapply up to 3x with improved surface metrics but unchanged hidden PD — forcing the agent to learn true risk signals.</div></div></div>
+    <div class="ac"><div class="ai a"><i data-lucide="scale" class="ic ic-xl" aria-hidden="true"></i></div><div><div class="an">Regulator Agent</div><div class="ar">Compliance Enforcer</div><div class="ad">Audits portfolio at steps ≈10/20/30/40/50 (±1 jitter). Checks NPA rate, CRAR, sector concentration. Episode shutdown on 3 consecutive fails.</div></div></div>
   </div>
 </section>
 <section class="w">
@@ -379,14 +385,14 @@ def read_root():
   <div class="stitle">Everything Open Source</div>
   <p class="ssub">All artefacts published on Hugging Face and GitHub under MIT License.</p>
   <div class="resources">
-    <a class="rc" href="https://huggingface.co/spaces/vssksn/intellicredit-openenv/blob/main/docs/blog.md" target="_blank"><div class="ri">📝</div><div><div class="rt">Technical Blog</div><div class="rd">Architecture, 2-stage GRPO, training curves, full results.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo" target="_blank"><div class="ri">🤖</div><div><div class="rt">Fine-Tuned Model</div><div class="rd">Mistral-7B post-trained on live environment via online GRPO.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2" target="_blank"><div class="ri">📊</div><div><div class="rt">Training Dataset</div><div class="rd">2,000 GRPO prompts across 5 task levels — intellicredit-grpo-v2.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing" target="_blank"><div class="ri">🚀</div><div><div class="rt">Stage 1 — Offline GRPO</div><div class="rd">Mistral-7B + Unsloth, A100, ~45 min. Pre-train on 2,000 prompts.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/main/training/colab_online_grpo.ipynb" target="_blank"><div class="ri">🌍</div><div><div class="rt">Stage 2 — Online GRPO</div><div class="rd">Post-train on this live env. Real rewards from /step endpoint.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="https://github.com/1919-14/intellicredit-openenv" target="_blank"><div class="ri">💻</div><div><div class="rt">GitHub Repository</div><div class="rd">Full source — env, training scripts, evaluation. MIT License.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="/docs" target="_blank"><div class="ri">⚡</div><div><div class="rt">Swagger UI</div><div class="rd">Interactive API — run /reset and /step right in the browser.</div></div><span class="ra">↗</span></a>
-    <a class="rc" href="/info" target="_blank"><div class="ri">🔍</div><div><div class="rt">Environment Info JSON</div><div class="rd">Full metadata — observation dims, action space, tasks, constraints.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="https://huggingface.co/spaces/vssksn/intellicredit-openenv/blob/main/docs/blog.md" target="_blank"><div class="ri"><i data-lucide="file-text" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Technical Blog</div><div class="rd">Architecture, 2-stage GRPO, training curves, full results.</div></div><span class="ra"><i data-lucide="arrow-up-right" class="ic ic-sm" aria-hidden="true"></i></span></a>
+    <a class="rc" href="https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo" target="_blank"><div class="ri"><i data-lucide="bot" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Fine-Tuned Model</div><div class="rd">Mistral-7B post-trained on live environment via online GRPO.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2" target="_blank"><div class="ri"><i data-lucide="bar-chart-2" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Training Dataset</div><div class="rd">2,000 GRPO prompts across 5 task levels — intellicredit-grpo-v2.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing" target="_blank"><div class="ri"><i data-lucide="rocket" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Stage 1 — Offline GRPO</div><div class="rd">Mistral-7B + Unsloth, A100, ~45 min. Pre-train on 2,000 prompts.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/main/training/colab_online_grpo.ipynb" target="_blank"><div class="ri"><i data-lucide="globe" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Stage 2 — Online GRPO</div><div class="rd">Post-train on this live env. Real rewards from /step endpoint.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="https://github.com/1919-14/intellicredit-openenv" target="_blank"><div class="ri"><i data-lucide="github" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">GitHub Repository</div><div class="rd">Full source — env, training scripts, evaluation. MIT License.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="/docs" target="_blank"><div class="ri"><i data-lucide="zap" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Swagger UI</div><div class="rd">Interactive API — run /reset and /step right in the browser.</div></div><span class="ra">↗</span></a>
+    <a class="rc" href="/info" target="_blank"><div class="ri"><i data-lucide="search" class="ic ic-lg" aria-hidden="true"></i></div><div><div class="rt">Environment Info JSON</div><div class="rd">Full metadata — observation dims, action space, tasks, constraints.</div></div><span class="ra">↗</span></a>
   </div>
 </section>
 <footer>
@@ -397,6 +403,8 @@ def read_root():
   &nbsp;&middot;&nbsp;<a href="/info">JSON Info</a>
   &nbsp;&middot;&nbsp;<a href="https://github.com/1919-14/intellicredit-openenv/blob/main/LICENSE">MIT License</a>
 </footer>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<script>document.addEventListener('DOMContentLoaded',function(){lucide.createIcons();});</script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
