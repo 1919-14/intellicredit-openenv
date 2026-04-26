@@ -1,367 +1,346 @@
----
-title: "IntelliCredit-OpenEnv: Teaching AI to Make Credit Decisions Like Senior Bankers"
-description: "How we built a Reinforcement Learning environment that transforms credit underwriting—turning months of manual review into minutes of intelligent decisions under regulatory constraints."
-keywords: "Reinforcement Learning, Credit Risk, MSME Lending, OpenEnv, MDP, RL Environment"
-date: "2026-04-25"
-author: "V S S K Sai Narayana & Sujeet Jaiswal | Team PraxisCode X"
----
+# 📋 IntelliCredit-X — Project Summary
 
-# 🏦 Teaching AI to Make Credit Decisions Like Senior Bankers
+> *The complete technical story behind building a multi-agent RL environment for MSME credit underwriting and GRPO fine-tuning of Mistral-7B*
 
-## The Problem Nobody Wants to Admit
-
-Let me paint a picture. It's 3:00 PM on a Friday. A loan officer in Mumbai is reviewing their **47th application of the day**—a Mid-Size Manufacturing Company requesting ₹2 Crores for working capital. They have:
-
-- ✅ GST Returns (last 3 years) — conflicting turnover figures
-- ✅ Bank Statements — showing erratic cash flows and weekend deposits  
-- ✅ ITR filings — showing different profit margins than GST reported
-- ✅ Cheque bounces — 23% in the last quarter
-- ✅ Promoter litigation — 2 pending cases in commercial court
-
-Now, the loan officer must ask themselves: **"In a world where a single ₹5-crore bad loan can wipe out 10 years of profits, should I APPROVE, CONDITIONALLY APPROVE, or REJECT this loan?"**
-
-This is the **Indian MSME lending dilemma**. 
-
-The traditional solution? **Hire more senior bankers.** But senior bankers:
-- Cost ₹40-80 lakhs annually
-- Make mistakes when reviewing 40+ applications per day (human fatigue)
-- Can't consistently apply regulatory rules (CRAR, Basel III, RBI compliance)
-- Leave no explainable audit trail (just "gut feeling")
-- Take weeks to process a single file
-
-**We took a different approach.**
-
-Instead of automating decisions, **we created a training ground where AI learns to think like a credit committee.**
+**Authors:** V S S K Sai Narayana & Sujeet Jaiswal  
+**Event:** Meta × Hugging Face OpenEnv Hackathon 2025  
+**Status:** ✅ All 8 Phases Complete — Production Deployed  
+**Published:** April 25, 2026 | **License:** MIT
 
 ---
 
-## The Innovation: A Constrained Multi-Objective MDP
+## 🔗 Quick Links
 
-Meet **IntelliCredit-OpenEnv**—a reinforcement learning environment where an AI agent assumes the role of a **Senior Credit Officer** in an Indian bank. But this isn't a simplified toy problem.
-
-### What Makes This Different?
-
-1. **It's regulated.** The agent must respect:
-   - ✅ CRAR constraints (>12.5% Capital-to-Risk-Weighted-Assets)
-   - ✅ Sector concentration limits (<15% per single borrower)
-   - ✅ Hard compliance rules (17+ regulatory checks that instantly reject bad loans)
-   - ✅ Delayed default penalties (loans approved today can default during a macro shock weeks later)
-
-2. **It's realistic.** The environment models:
-   - 45 real MSME financial indicators (DSCR, Current Ratio, Cheque bounce frequency, etc.)
-   - Hidden frauds (circular GST trading, related-party transactions, ITC mismatches)
-   - Macro-economic shocks (a sudden GDP drop at T=7 can trigger cascading defaults)
-   - Missing/masked data (represented as sentinel value `-1.0`, teaching uncertainty handling)
-
-3. **It's multi-objective.** The agent must balance:
-   - **Yield** — approving loans earns +0.7 to +1.0 reward
-   - **Risk** — a default costs -2.0 penalty + regulatory fines
-   - **Capital preservation** — maintaining the bank's solvency
+| Resource | Link |
+|----------|------|
+| 🤗 Live Environment | [huggingface.co/spaces/vssksn/intellicredit-openenv](https://huggingface.co/spaces/vssksn/intellicredit-openenv) |
+| 🤗 GRPO Model | [vssksn/intellicredit-mistral-7b-grpo](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) |
+| 🤗 Training Dataset | [vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset) |
+| 📓 Colab Training Notebook | [Open in Colab](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing) |
+| 💻 GitHub Repository | [1919-14/intellicredit-openenv](https://github.com/1919-14/intellicredit-openenv) |
+| 📖 API Docs | [Swagger UI](https://vssksn-intellicredit-openenv.hf.space/docs) |
+| 📝 Full Blog Post | [docs/blog.md](./docs/blog.md) |
 
 ---
 
-## How IntelliCredit-OpenEnv Works: A 12-Step Credit Committee
+## 🎯 The Problem
 
-Imagine an RL episode as a **credit committee meeting** spanning 12 time-steps.
+The MSME lending sector in India processes **100,000+ loan applications daily**. The traditional solution — hire more senior bankers — doesn't scale:
 
-T=1: Application from a Spice Trading Company arrives ├─ Observation: 45 variables about financials + macro economy + portfolio state ├─ Agent Decision: APPROVE (0) | CONDITIONAL (1) | REJECT (2) └─ Immediate Reward: +0.8 (if smart), -1.5 (if violates hard rules)
+- A senior officer reviews **~16 applications/day** at 30 minutes each
+- Officers cost ₹40–80 lakhs annually
+- Human fatigue causes **inconsistent rule application**
+- **12–15% annual default rates** due to missed fraud signals buried in data
+- No explainable audit trail — decisions driven by "gut feeling"
 
-T=2: Another application arrives (this time, a Textiles Company) ├─ Agent approves both companies ├─ Portfolio state updates: Capital deployed ↓, NPA risk ↑ └─ Continue...
-
-T=7: ECONOMIC SHOCK ⚡ ├─ Systemic stress suddenly rises (GDP contraction signal) ├─ Textiles sector enters stressed state ├─ Both loans approved at T=2 become at-risk └─ Agent receives delayed -2.0 penalty for portfolio losses
-
-T=12: Episode ends ├─ Final portfolio score calculated ├─ CRAR constraint check └─ If CRAR < 12.5%, episode terminates early (bank failed!)
-
-Code
-
-### The Reward Structure
-
-Unlike simple RL environments, IntelliCredit has a **hybrid reward system**:
-
-| Decision | Base Yield | Risk | Regulatory | Multi-Objective |
-|----------|-----------|------|-----------|-----------------| 
-| **APPROVE** (0) | +0.9 | -0.2 (default risk) | -1.5 (if rule-break) | **+0.7 to +1.0** |
-| **CONDITIONAL** (1) | +0.4 | -0.05 (lower risk) | -0.5 (if violation) | **+0.3 to +0.6** |
-| **REJECT** (2) | 0.0 | 0.0 | 0.0 | **0.0** |
-
-The catch? Delayed penalties. A loan approved at T=2 might stay clean until T=7, when a macro shock hits, and suddenly the agent faces a -2.0 penalty for that decision 5 steps ago.
-
-**This teaches temporal credit risk thinking.**
+**Our approach:** Build a reinforcement learning training environment where an AI learns to reason like the best credit officers — gathering evidence, detecting hidden fraud, respecting hard regulatory constraints, and managing portfolio risk across time.
 
 ---
 
-## Real Results: A PPO Agent Learns to Think Like a Banker
+## 🏗️ What IntelliCredit-X Is
 
-We trained a **Stable Baselines3 PPO agent** for 500,000 timesteps. Here's what we observed:
+IntelliCredit-X is a **Constrained Multi-Agent MDP** (Markov Decision Process) built as an OpenEnv-compliant environment. An LLM agent acts as a **Senior Credit Officer** across a 50-step episode representing a full credit committee lifecycle.
 
-### Training Convergence (The Learning Curve)
+**What makes this fundamentally different from a classifier:**
 
-🟥 Steps 0-50k: "I Have No Idea What I'm Doing"
-
-Agent acts randomly
-Triggers hard-rule violations constantly (-1.5 penalties)
-CRAR drops below 12.5% → Episode terminates
-Average Reward: -1.20
-Success Rate: 5%
-🟨 Steps 50k-200k: "Wait, There Are Rules?"
-
-Agent starts recognizing -1.0 sentinel values (missing data = RED FLAG)
-Learns to REJECT when Director Disqualified flag present
-Stops triggering cheque-bounce hard rules (HR-02)
-CRAR maintained above 12.5%
-Average Reward: -0.30
-Success Rate: 45%
-🟩 Steps 200k-500k: "I'm a Senior Credit Officer Now"
-
-Agent fully balances risk vs. yield
-Uses CONDITIONAL approvals strategically (e.g., for medium-risk sectors before macro shocks)
-Maintains sector concentration limits
-Anticipates delayed default penalties
-Final Episode Score: ~3.57
-Success Rate: 78%
-Improvement over random baseline: 400%
-Code
-
-### Benchmark Performance (5 Progressive Tasks)
-
-| Task | Difficulty | Steps | PPO Score | Random Baseline | Improvement |
-|------|-----------|-------|-----------|-----------------|-------------|
-| **Task 1** | 🟢 Easy | 5 | **0.85** | 0.12 | **+608%** |
-| **Task 2** | 🟡 Medium | 8 | **0.72** | 0.08 | **+800%** |
-| **Task 3** | 🔴 Hard | 12 | **0.58** | 0.05 | **+1060%** |
-| **Task 4** | 🔥 Expert | 12 | **0.51** | 0.03 | **+1600%** |
-| **Task 5** | ⚡ Master | 12 | **0.42** | 0.01 | **+4100%** |
-
-**What this means:** An untrained agent scores 0.01 on the hardest task (basically guessing). Our trained PPO agent achieves 0.42—a **41x improvement.**
+| Challenge | How IntelliCredit-X Models It |
+|-----------|-------------------------------|
+| Multi-step investigation | Agent calls tools before deciding — not a one-shot classification |
+| Delayed consequences | Loan approved at step 5 may default at step 30 — reward arrives 25 steps later |
+| Adversarial borrowers | BorrowerAgent improves surface metrics after rejection; hidden PD unchanged |
+| Regulatory enforcement | RegulatorAgent audits portfolio every ~10 steps; 3 failures = shutdown |
+| Missing data | −1.0 sentinel = masked feature; data absence itself is a risk signal |
+| Regulatory hard rules | 6 RBI mandates that auto-reject and penalize regardless of model choice |
 
 ---
 
-## The Architecture: 45-Dimensional Observations, 3 Actions, Infinite Complexity
+## 📐 System Architecture
 
-### Observation Space (45-D Vector)
-
-The agent observes the entire state of the credit system:
-
-📊 APPLICATION FEATURES (25 dimensions) ├─ Financials: DSCR, Current Ratio, Debt-to-Equity, EBITDA Margin, Collateral Coverage ├─ Banking Behavior: OD Utilization, CC Volatility, Cheque Bounce Frequency, WCC ├─ Fraud Indicators: GST Turnover CAGR, 2A vs 3B Gap, Circular Trading, ITC Mismatch └─ Governance: Promoter Litigation Count, MCA Charges, Adverse News Sentiment
-
-🏦 PORTFOLIO STATE (10 dimensions) ├─ Capital Deployed ├─ Remaining Capital
-├─ True NPA Rate ├─ Provisioning Coverage └─ Real-time CRAR
-
-🌍 MACRO STATE (5 dimensions) ├─ Systemic Stress Level ├─ Stressed Sector Flag ├─ GDP Growth Rate ├─ Inflation Rate └─ Credit Cycle Phase
-
-⚠️ ALERT STATE (5 dimensions) └─ Aggregate recent red-flag tallies
-
-Code
-
-### Hard Compliance Rules (Immediate Circuit-Breaker)
-
-If the agent tries to APPROVE a loan that violates these rules, it's **instantly rejected** with a -1.5 penalty:
-
-HR-01: DSCR < 1.0 → "Can't pay back the loan" HR-02: Director Disqualified (DIN Score < 0.1) → "Fraud risk too high" HR-03: RED Forensic Alert Present → "Money laundering flag" HR-04: Cheque Bounce Rate > 25% → "Track record of payment failures" ... (and 13 more regulatory rules)
-
-Code
-
-These are **non-negotiable**—even if the RL agent wants to approve, the environment's compliance engine overrides it.
-
----
-
-## Real-World Application: From RL Environment to Production
-
-### Why IntelliCredit-OpenEnv Matters
-
-This isn't academic. Indian banks process **100,000+ MSME loan applications daily**. Current bottlenecks:
-
-1. **Manual Underwriting**: A senior officer reviews 1 application per 30 minutes = 16/day
-2. **Inconsistent Rules**: Different officers apply rules differently (bias, fatigue)
-3. **Slow Turnaround**: Applicants wait 2-3 weeks for a decision
-4. **High Defaults**: MSMEs have 12-15% annual default rates due to poor risk assessment
-
-**With IntelliCredit-OpenEnv, you could:**
-- Train an RL agent on your bank's historical loan data
-- Deploy it as a **"First-Pass Screener"** that instantly rejects obvious frauds
-- Use it to **educate junior loan officers** (simulation-based training)
-- Validate it against your compliance & audit teams (explainable AI)
-- Use ensemble methods (AI recommendation + human review) for high-value loans
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                   INTELLICREDIT-X SYSTEM OVERVIEW                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   BORROWER AGENT (Adversarial)      REGULATOR AGENT (Enforcer)     │
+│   ┌─────────────────────────┐       ┌─────────────────────────┐    │
+│   │ Presents applications   │       │ Audits at ≈10/20/30/    │    │
+│   │ Hides real risk behind  │       │ 40/50 steps (±1 jitter) │    │
+│   │ improved surface numbers│       │ NPA/CRAR/concentration  │    │
+│   │ Reapplies up to 3×      │       │ Shutdown after 3 fails  │    │
+│   └────────────┬────────────┘       └────────────┬────────────┘    │
+│                └──────────────┬──────────────────┘                  │
+│                               ▼                                     │
+│                  ┌────────────────────────┐                         │
+│                  │      WORLD STATE       │                         │
+│                  │  Macro economy trends  │                         │
+│                  │  Sector health scores  │                         │
+│                  │  Loan maturity queue   │                         │
+│                  │  Portfolio ledger      │                         │
+│                  └───────────┬────────────┘                         │
+│                              ▼                                      │
+│         ┌────────────────────────────────────────────┐             │
+│         │       CREDIT OFFICER AGENT (LLM)            │             │
+│         │                                             │             │
+│         │  Sees 55D observation as a text prompt      │             │
+│         │  Calls 3 investigation tools (max 4/step)  │             │
+│         │  Writes reasoning + submits decision        │             │
+│         │                                             │             │
+│         │  Fine-tuned via GRPO (TRL + Unsloth)       │             │
+│         │  Self-improves via Reflection Module        │             │
+│         └────────────────────────────────────────────┘             │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## How to Use IntelliCredit-OpenEnv
+## 👁️ Observation Space — 55 Dimensions
 
-### Option 1: Play Manually (Via Live Swagger API)
+| Group | Dims | Description |
+|-------|------|-------------|
+| Application Features | 0–24 | DSCR, Current Ratio, GST gap, DIN score, cheque bounce rate, circular trading flag, ITC mismatch, RONW, collateral… |
+| Portfolio State | 25–34 | Capital deployed, NPA rate, CRAR, provisioning coverage, sector concentration flags |
+| Macro State | 35–39 | Systemic stress, GDP growth, inflation, credit cycle phase, stressed sector flag |
+| Alert State | 40–44 | Running RED/YELLOW alert tallies for episode |
+| **Memory Features** *(v2)* | **45–54** | Rolling NPA, approval rate, sector max concentration, macro trend, borrower persistence, audit risk, capital buffer, reflection count, episode progress, world model confidence |
 
-```bash
-# 1. Visit the live API docs
-https://vssksn-intellicredit-openenv.hf.space/docs
+**Key dimension:** `Dim 49: borrower_persistence_score` — `0.0` = first attempt, `0.5` = second, `1.0` = third attempt. A value of 1.0 is the environment's strongest manipulation signal.
 
-# 2. Click POST /reset
-# 3. Set episode_id and seed
-POST /reset
-{
-  "episode_id": "my-session-123",
-  "seed": 42
-}
+---
 
-# 4. Receive 45-D observation + text summary
-# 5. Make your decision
-POST /step
-{
-  "episode_id": "my-session-123",
-  "action": {"decision": 1},  # 0=APPROVE, 1=CONDITIONAL, 2=REJECT
-  "timeout_s": 30
-}
+## 🕹️ Action Space + Tool System
 
-# 6. Repeat 12 times to complete an episode
-Option 2: Train Your Own RL Agent (Python)
-Python
-from intellicredit_openenv import IntelliCreditEnv
-from stable_baselines3 import PPO
+**Actions:** `0 = APPROVE` | `1 = CONDITIONAL` | `2 = REJECT`
 
-# Create environment
-env = IntelliCreditEnv(num_tasks=5, task_id=3)  # Hard difficulty
+Plus optional tool calls before each decision (max 4 per step):
 
-# Train an agent
-model = PPO("MlpPolicy", env, verbose=1)
-model.learn(total_timesteps=500_000)
+| Tool | Returns | Best Used When |
+|------|---------|----------------|
+| `get_financial_report(company_id)` | 3yr revenue, EBITDA, auditor remarks, related-party transactions | Borderline financials, need trend data |
+| `check_compliance_status(company_id)` | DIN status, NCLT cases, GST filings, CIBIL, prior defaults | RED alert present or low governance score |
+| `get_market_intelligence(sector)` | Sector stress, RBI advisory, portfolio exposure, peer NPA rate | Approaching 30% concentration limit |
+| `submit_decision(action, reasoning)` | Finalizes step (reasoning ≥ 50 chars mandatory) | After investigation complete |
 
-# Evaluate
-mean_reward, std_reward = model.evaluate_policy(env, n_eval_episodes=10)
-print(f"Mean Reward: {mean_reward:.2f} ± {std_reward:.2f}")
+---
 
-# Deploy
-obs, info = env.reset(seed=42)
-for _ in range(12):  # 12 steps per episode
-    action, _states = model.predict(obs, deterministic=True)
-    obs, reward, terminated, truncated, info = env.step(action)
-    print(f"Action: {action}, Reward: {reward:.2f}")
-Option 3: Run Locally (Docker)
-bash
-# Clone the repo
-git clone https://github.com/1919-14/intellicredit-openenv.git
-cd intellicredit-openenv
+## 🛑 Hard Rules (Non-Negotiable RBI Mandates)
 
-# Build & run
-docker build -t intellicredit .
-docker run -p 7860:7860 intellicredit
+| Rule | Trigger Condition | Outcome |
+|------|-------------------|---------|
+| HR-01 | DSCR < 1.0 | Auto-REJECT + −2.0 penalty |
+| HR-02 | Director DIN < 0.1 (disqualified) | Auto-REJECT + −2.0 penalty |
+| HR-03 | RED forensic alert present | Auto-REJECT + −2.0 penalty |
+| HR-04 | Cheque bounce rate > 25% | Auto-REJECT + −2.0 penalty |
+| HR-05 | GST compliance < 40% | Auto-REJECT + −2.0 penalty |
+| HR-06 | Adverse media score > 0.80 | Auto-REJECT + −2.0 penalty |
 
-# Access at http://localhost:7860/docs
-Technical Highlights: Why This Is Non-Trivial
-1. Constrained MDPs with Hard Rules
-Traditional RL ignores constraints. IntelliCredit enforces them instantly. If the agent violates CRAR or other regulatory rules, the episode terminates—realistic banking scenarios.
+---
 
-2. Delayed Consequences
-Approving a loan at T=2 might look good until a macro shock at T=7 causes default. This temporal credit risk is rarely modeled in RL environments.
+## 📈 Reward System
 
-3. Hybrid Reward Structure
-We don't use a single scalar reward. Instead, we compute:
+### Per-Step Components
 
-Code
-reward = base_yield + risk_adjustment - regulatory_penalties + macro_shock_impact
-This mirrors real banking economics.
+| Component | Weight | Range | Purpose |
+|-----------|--------|-------|---------|
+| R1: Decision Correctness | 40% | [−2.0, +1.0] | PD-based: low PD+APPROVE=+1.0; high PD+APPROVE=−2.0 |
+| R2: Hard Rule Compliance | 30% | [−2.0, +0.5] | HR+REJECT=+0.5; HR+APPROVE=−2.0 |
+| R3: Format Compliance | 15% | [−0.3, +0.3] | `submit_decision()` used=+0.3; parse failure=−0.3 |
+| R4: Portfolio Awareness | 15% | [−0.8, +0.3] | NPA>8%+risky approve=−0.5; healthy approve=+0.2 |
 
-4. Explainability by Design
-Every decision logs:
+### Delayed + Event Rewards
 
-Which features influenced the choice
-What regulatory rules were checked
-What macro conditions existed
-Why the agent took that action
-Perfect for audit teams & compliance reviews.
+| Event | Reward | When It Fires |
+|-------|--------|---------------|
+| Loan fully repaid | **+10.0** | T+10 to T+30 after approval |
+| Partial default (recovery ≥50%) | **−5.0** | T+10 to T+30 after approval |
+| Full default (recovery <50%) | **−15.0 × (1−recovery)** | T+10 to T+30 after approval |
+| Clean audit (all checks pass) | **+2.0** | Each audit step |
+| Audit violation | **−8.0 per violation** | Each audit step |
+| Capital breach (CRAR <12.5%) | **−15.0** | Each audit step |
+| 3rd consecutive audit fail | **−50.0 + shutdown** | Terminal |
+| Survival bonus (CRAR >12.5%) | **+0.05–+0.10** | Every 10 steps |
 
-Metrics & Evaluation (MNC-Level Standards)
-Grading Formula (Multi-Objective)
-Each task is scored using weighted criteria:
+### Settlement Score (Step 50)
 
-Criterion	Weight	What It Measures
-Accuracy	50%	Matches optimal algorithmic decisions
-Hard Rule Compliance	25%	Zero regulatory violations
-NPA Management	15%	Portfolio default rate < 5%
-Capital Utilization	10%	Efficient capital deployment
-Score Interpretation
-Range	Interpretation	Real-World Meaning
-0.80 – 1.00	🟢 Excellent	Near-perfect decisions, ready for production
-0.60 – 0.80	🟢 Good	Mostly correct with minor oversights
-0.40 – 0.60	🟡 Fair	Balanced risk/yield but needs refinement
-0.20 – 0.40	🔴 Poor	Frequent violations, not deployment-ready
-0.00 – 0.20	🔴 Failed	Worse than random guessing
-The Bigger Picture: Why AI + Banking Needs RL Environments
-Traditional ML Approaches Fall Short
-Supervised Learning (Classification):
+```
+score = 0.30 × portfolio_yield
+      + 0.30 × (1 − npa_rate / 0.05)
+      + 0.20 × regulatory_compliance
+      + 0.20 × capital_utilization
 
-❌ Predicts "default" or "non-default" only
-❌ Doesn't learn to balance yield vs. risk
-❌ Ignores regulatory constraints
-❌ Treats each decision independently (no portfolio thinking)
-Reinforcement Learning (with IntelliCredit):
+Range: [−1.0, +5.0]   |   Good episode ≥ 3.0
+```
 
-✅ Learns sequential decision-making (T=1, T=2, ..., T=12)
-✅ Optimizes multi-objective goals (yield + risk + compliance)
-✅ Enforces constraints (CRAR, sector limits, hard rules)
-✅ Handles delayed consequences (loan approved today → default next quarter)
-✅ Adapts to macro shocks (economic downturns mid-episode)
-Deployment: From Research to Production
-Phase 1: Research & Validation (Completed ✅)
-Built OpenEnv-compliant environment
-Trained baseline PPO agent
-Achieved 78% success rate on hard tasks
-Phase 2: Enterprise Hardening (Next)
- Multi-agent training (multiple loan officers)
- Explainability layer (SHAP-style feature importance)
- Fine-tuning on bank's historical data
- Stress-testing against past crises (2008, COVID-19, etc.)
-Phase 3: Production Deployment (Future)
-Deploy as API microservice (Kubernetes)
-Integrate with existing loan management systems
-Set up audit & governance dashboards
-Train human loan officers using the RL agent as a teaching tool
-Team & Acknowledgments
-Built by: Team PraxisCode X
+---
 
-V S S K Sai Narayana (Team Lead)
-Sujeet Jaiswal (RL & Scoring Engine)
-Built for: Meta x Hugging Face OpenEnv Hackathon
+## 🤖 GRPO Training Pipeline
 
-Special thanks to:
+### Model & Config
 
-OpenEnv framework for enabling custom RL environments
-Hugging Face Spaces for seamless deployment
-Indian banking professionals who validated our problem statement
-Open-Source, MIT Licensed
-IntelliCredit-OpenEnv is 100% open-source and free to use, modify, and deploy. Whether you're:
+| Parameter | Value |
+|-----------|-------|
+| Base Model | `mistralai/Mistral-7B-Instruct-v0.3` |
+| Quantization | 4-bit QLoRA via Unsloth |
+| LoRA Rank | 16, targeting q/k/v/o projections |
+| Sequence Length | 2048 tokens (strictly enforced) |
+| Generations per prompt | 8 |
+| Effective batch size | 16 (batch=2, grad_accum=8) |
+| KL Beta | 0.001 |
+| Hardware | A100 80GB — ~45 minutes total |
 
-🎓 A researcher studying credit risk and RL
-🏦 A fintech building automated underwriting
-💡 A startup rethinking MSME lending
-...you can fork it, train it on your data, and build your own credit AI.
+### 3-Stage Curriculum
 
-GitHub: https://github.com/1919-14/intellicredit-openenv
-Live Demo: https://huggingface.co/spaces/vssksn/intellicredit-openenv
-API Docs: https://vssksn-intellicredit-openenv.hf.space/docs
+| Stage | Training Data | LR | Temperature | Goal |
+|-------|-------------|-----|-------------|------|
+| Stage 0 (SFT Warmup) | Mixed tasks | 5e-5 | — | Bootstrap `submit_decision()` format compliance |
+| Stage 1 | task1 (Easy) | 5e-6 | 0.9 | Hard rule recognition on clean profiles |
+| Stage 2 | task1 + task2 | 5e-6 | 0.9 | Forensic alert detection + tool call initiation |
+| Stage 3 | All 5 tasks | 2e-6 | 0.8 | Long-horizon portfolio management under macro shocks |
 
-The Closing Thought
-Credit decisions have shaped economies for centuries. For the last century, they've been made by senior bankers applying experience and intuition.
+### Training Dataset
 
-IntelliCredit-OpenEnv asks a different question:
+- **2,000 prompts** — 400 per task level (task1–task5)
+- Each prompt ~2,400 characters (role + tools + rules + application + portfolio + macro)
+- Ground truth metadata: hidden PD, optimal action, hard rules, forensic alerts, CRAR, NPA
+- Distribution: **47.2%** hard rules triggered | **28.1%** RED forensic alerts
+- Dataset: [vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset)
 
-What if we could train an AI to think like the best credit officers—learning not just to classify risk, but to optimize yield, respect regulations, and anticipate consequences?
+### Critical Bugs Fixed During Training
 
-The environment is built. The baseline is proven. The stage is yours.
+| Bug | Root Cause | Fix Applied |
+|-----|-----------|-------------|
+| CUDA Index Out of Bounds | Unsloth pads vocab 32768→32832; OOB token IDs caused assertions | Clamp all IDs to `vocab_size−1`; add `valid_mask` |
+| Shape mismatch on logits | `full_ids` exceeded 2048 before forward pass; logits truncated | Enforce `full_ids = full_ids[:, :MAX_SEQ_LEN]` before forward |
+| Flat KL divergence | `clamp(min=0)` made KL=0 when new policy was more confident | Changed to `abs()` for symmetric KL |
+| Zero-LP episodes | Long prompts consumed full context; zero completion tokens | `continue` when `sum(log_probs) == 0` |
 
-Ready to build the future of MSME lending?
+---
 
-Start here: https://github.com/1919-14/intellicredit-openenv
+## 🪞 Self-Improvement Reflection System
 
-📚 Additional Resources
-Full Architecture Deep-Dive: See README.md in the repository
-Training Reproducibility: Run python training/train_ppo.py to reproduce our 500k-step results
-Research Citation:
-BibTeX
+The Reflection Module enables **cross-episode learning without weight updates** by injecting structured lessons into the next episode's system prompt.
+
+### How It Works
+
+```
+Episode N → Analyze all steps where reward < 0
+          → Extract lessons by failure type (6 categories)
+          → Store in memory_bank.json (max 20, FIFO eviction)
+Episode N+1 → Inject top 5 lessons into system prompt Layer 3
+            → Agent makes better decisions without retraining
+```
+
+### 6 Lesson Categories
+
+| Trigger | Lesson Format | Severity |
+|---------|---------------|----------|
+| Hard Rule Violation | `RULE: When [condition], always REJECT` | Critical |
+| Delayed Default | `CAUTION: Loans with [pattern] defaulted at step X` | High |
+| Audit Failure | `COMPLIANCE: Audit failed due to [metric]` | High |
+| Borrower Manipulation | `FRAUD: 3rd-attempt applicant with [pattern] defaulted` | Critical |
+| Macro Shock Loss | `MACRO: During [state], be conservative with [sector]` | Medium |
+| Portfolio Overexposure | `PORTFOLIO: NPA rate reached X%. Increase rejections.` | High |
+
+**Measured result:** Base model (no fine-tuning) improved average episode score from **0.22 → 0.55** across 30 episodes using only reflection — a **+150% improvement without changing a single weight**.
+
+---
+
+## 📊 Results — GRPO Fine-Tuned vs. Base Model
+
+![Baseline vs Post-Training GRPO](./docs/assets/comparison.png)
+
+| Task | Metric | Base Mistral-7B | GRPO Model | Delta |
+|------|--------|----------------|-----------|-------|
+| Task 1 (Easy) | Score | 0.900 | **0.955** | **+0.055 ✅** |
+| | Accuracy | 80.0% | **86.7%** | **+6.7% ✅** |
+| | Total Reward | 2.904 | 3.272 | +0.368 ✅ |
+| | Capital Util | 40.0% | **60.0%** | **+20.0% ✅** |
+| Task 2 (Medium) | Score | 1.000 | 1.000 | ceiling ✅ |
+| | Total Reward | 10.305 | **10.584** | **+0.279 ✅** |
+| | Capital Util | 25.0% | **29.2%** | **+4.2% ✅** |
+| Task 3 (Hard) | Score | 0.767 | **0.833** | **+0.067 ✅** |
+| | Total Reward | 0.215 | **2.491** | **+2.276 ✅ (10×!)** |
+| | Accuracy | 58.3% | **66.7%** | **+8.3% ✅** |
+| | **NPA Rate** | **16.7%** | **8.3%** | **−8.3% ✅ (halved!)** |
+| | Capital Util | 16.7% | **25.0%** | **+8.3% ✅** |
+
+**Zero regressions across all 24 metric-task combinations.**
+
+---
+
+## 🧠 Training Curves
+
+![GRPO Training Curves](./docs/assets/training_curves.png)
+
+| Panel | What It Shows |
+|-------|---------------|
+| GRPO Loss (red) | Controlled upward drift 0→0.05 — policy meaningfully diverging from base |
+| Mean Reward (blue) | Starts −2.0, crosses zero by step 10, stabilizes +0.5 to +1.0 |
+| KL Divergence (purple) | Grows to 0.04–0.08 — new behaviors learned, base capabilities preserved |
+| `submit_pct` (teal) | Format compliance 0%→40–65% — model acquires the task's vocabulary |
+
+The biggest reward jump happens at the Stage 1→2 transition (when forensic alerts first appear), suggesting forensic pattern recognition was the primary learning bottleneck.
+
+---
+
+## 🗺️ Project Phase Completion
+
+| Phase | Name | Status |
+|-------|------|--------|
+| Phase 0 | Strategic Alignment & Decisions | ✅ Complete |
+| Phase 1 | Environment Upgrade (v1 → v2: 50-step, 55D, multi-agent) | ✅ Complete |
+| Phase 2 | Multi-Agent System Design (Borrower + Regulator agents) | ✅ Complete |
+| Phase 3 | Tool Calling System (3 tools + parser + anti-hacking) | ✅ Complete |
+| Phase 4 | Reward System Redesign (sparse/delayed + 4 components) | ✅ Complete |
+| Phase 5 | Self-Improvement & Reflection System | ✅ Complete |
+| Phase 6 | GRPO Training Pipeline (Unsloth + TRL, 3-stage curriculum) | ✅ Complete |
+| Phase 7 | Evaluation & Proof Generation | ✅ Complete |
+| Phase 8 | GRPO Stabilization + Real Model Evaluation | ✅ Complete |
+
+---
+
+## 📁 File Inventory
+
+| File | Role | Phase |
+|------|------|-------|
+| `server/app.py` | FastAPI server — /reset, /step, /info, /health | P0 |
+| `server/intellicredit_env.py` | v2 core: WorldState, 50-step lifecycle, multi-agent | P1–P4 |
+| `server/dataset.py` | Application generator (Anchor × Sector × Size × Tier) | P0 |
+| `server/reward.py` | R1-R4 reward engine + settlement grader | P4 |
+| `server/action_parser.py` | LLM text → tool call / decision parser (6 parse levels) | P3 |
+| `server/tool_executor.py` | Read-only tool execution (financial, compliance, market) | P3 |
+| `server/agent_loop.py` | Agent orchestrator + prompt injection | P3–P5 |
+| `server/reflection.py` | Self-improvement + memory bank | P5 |
+| `training/colab_grpo_3b_v2.py` | PRIMARY: Unsloth GRPO training script (A100, ~45 min) | P6/P8 |
+| `training/generate_dataset.py` | 2,000-prompt GRPO dataset generator | P6 |
+| `training/grpo_rewards.py` | 4 GRPO reward functions (R1-R4) | P6 |
+| `training/train_grpo.py` | 3-stage curriculum pipeline | P6 |
+| `evaluation/evaluate.py` | Multi-mode evaluation engine | P7 |
+| `evaluation/compare.py` | Comparison tables + reward curves | P7 |
+| `eval_llm.py` | LLM evaluation via HTTP (base vs trained) | P8 |
+| `compare_results.py` | Bar chart comparison generator | P8 |
+| `models.py` | Pydantic schemas (55D observation, action) | P1 |
+| `inference.py` | LLM inference wrapper | P0 |
+| `docs/blog.md` | Full technical blog post (~5,000 words) | P8 |
+| `docs/assets/comparison.png` | Baseline vs GRPO results chart | P8 |
+| `docs/assets/training_curves.png` | GRPO training curves (Mistral-7B, A100) | P8 |
+
+**Total: ~10,000+ lines of implementation across 21 source files.**
+
+---
+
+## 📚 Citation
+
+```bibtex
 @article{intellicredit2025,
-  title={IntelliCredit: A Constrained MDP for MSME Credit Appraisal},
-  author={V S S K Sai Narayana, Sujeet Jaiswal},
-  year={2025},
-  note={OpenEnv Hackathon Submission}
+  title   = {IntelliCredit-X: A Multi-Agent Constrained MDP for MSME Credit
+             Appraisal with GRPO Fine-Tuning},
+  author  = {Narayana, V S S K Sai and Jaiswal, Sujeet},
+  year    = {2025},
+  note    = {Meta × Hugging Face OpenEnv Hackathon},
+  url     = {https://huggingface.co/spaces/vssksn/intellicredit-openenv}
 }
-Published: April 25, 2026
-Status: Production-Ready
-License: MIT
-Maintainers: @1919-14 (GitHub)
+```
+
+---
+
+*IntelliCredit-X — Built by V S S K Sai Narayana & Sujeet Jaiswal | MIT License*
