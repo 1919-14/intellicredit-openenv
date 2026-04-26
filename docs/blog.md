@@ -330,6 +330,41 @@ Always-REJECT gets a heavy penalty from `reward_portfolio`. Always-APPROVE gets 
 
 ## GRPO Training: How the LLM Learns Credit Judgment
 
+### The 2-Stage Training Pipeline
+
+[`vssksn/intellicredit-mistral-7b-grpo`](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) was not trained with a single script. The published model is the result of a **two-stage pipeline** — an architecture that mirrors how real-world RL systems are built.
+
+```
+┌────────────────────────────────────────────┐
+│  STAGE 1: Offline GRPO (Speed-Optimised)   │
+│  Script  : training/colab_grpo_3b_v2.py    │
+│  Model   : Mistral-7B-Instruct-v0.3        │
+│  Engine  : Unsloth + TRL + 4-bit QLoRA     │
+│  Data    : 2,000 pre-generated prompts     │
+│  Reward  : 4 local functions (no server)   │
+│  Runtime : ~45 minutes on A100 80GB        │
+│  Goal    : Domain knowledge, format learn  │
+└────────────────────────┬───────────────────┘
+                         │
+                         ▼  (Stage 1 checkpoint)
+┌────────────────────────────────────────────┐
+│  STAGE 2: Online GRPO (Environment-Native) │
+│  Script  : training/colab_online_grpo.py   │
+│  Model   : Mistral-7B from Stage 1         │
+│  Env     : Live HF Space (real HTTP calls) │
+│  Data    : Real 50-step episodes           │
+│  Reward  : 100% from /step endpoint        │
+│  Goal    : True environment alignment      │
+└────────────────────────┬───────────────────┘
+                         │
+                         ▼
+         vssksn/intellicredit-mistral-7b-grpo
+```
+
+**Stage 1** teaches the model what credit officers know — the hard rules, the forensic flags, the tool calling format. **Stage 2** teaches the model to actually perform in the environment — where every reward signal comes from the live `/step` endpoint and every mistake costs real episode reward. The published model was post-trained on direct environment interactions: it learned by actually operating in IntelliCredit-X, not by reading about it.
+
+This two-stage approach is why the GRPO model generalizes beyond the training distribution. Stage 1 builds broad domain coverage cheaply. Stage 2 narrows that coverage to precisely what the environment rewards — which is precisely what matters at evaluation time.
+
 ### Why GRPO, Not PPO?
 
 Our v1 submission used PPO with Stable Baselines3 trained on the 45-dimensional observation vector. That agent learned well — improving from −1.20 to +3.57 average reward over 500K steps. But it has a fundamental limitation: it has no language understanding. It cannot read the text of an auditor's going concern remark. It cannot call a tool and interpret the result. It cannot write a reasoned explanation for its decision.
@@ -557,21 +592,32 @@ curl -X POST https://vssksn-intellicredit-openenv.hf.space/step \
   -d '{"episode_id": "my-session-1", "action": {"decision": 2}}'
 ```
 
-### Option 2: Run GRPO Training on Your Own Model
+### Option 2: Train Your Own Model — Two Approaches
 
-A complete training script is in the repository at `training/colab_grpo_3b_v2.py`. Runs on A100 80GB (recommended for full training) or T4 (demo scale):
+We provide two training notebooks depending on your goal:
+
+**🚀 Stage 1 — Offline GRPO (Fast, A100, ~45 mins):** [`training/colab_grpo_3b_v2.py`](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing)
+
+Uses a pre-generated 2,000-prompt dataset + 4 local reward functions. No live server needed. Mistral-7B + Unsloth. Best starting point.
 
 ```bash
 # In Google Colab (A100):
 !git clone https://github.com/1919-14/intellicredit-openenv.git --branch v2 --depth 1
 %cd /content/intellicredit-openenv
 !pip install -q unsloth trl transformers torch accelerate requests
+# Then open and run training/colab_grpo_3b_v2.py
+```
 
-# Set your environment server URL (ngrok tunnel to local server)
-ENV_URL = "https://your-ngrok-url.ngrok-free.dev"
+**[🌍 Stage 2 — Online GRPO (Environment-Native)](https://github.com/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.py)**
 
-# Run GRPO training
-!python training/colab_grpo_3b_v2.py --env-url {ENV_URL}
+Connects to the live IntelliCredit environment. Every reward comes from the real `/step` endpoint. 50-step episodes with actual multi-agent pressure. This is how `vssksn/intellicredit-mistral-7b-grpo` was post-trained.
+
+```bash
+# Requires the live HF Space (or your local server via ngrok)
+# Run after Stage 1 checkpoint is ready
+# Uses Qwen2.5-1.5B for online efficiency, or load your Stage 1 Mistral checkpoint
+ENV_URL = "https://vssksn-intellicredit-openenv.hf.space"  # or your local URL
+# Then open and run training/colab_online_grpo.py
 ```
 
 ### Option 3: Evaluate Any Agent
@@ -672,9 +718,11 @@ We believe in honest assessment of what IntelliCredit-X does not yet handle:
 |---|---|---|
 | 🤗 Live Environment | [HF Space](https://huggingface.co/spaces/vssksn/intellicredit-openenv) | Interactive API + Swagger docs |
 | 🤗 Training Dataset | [vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset) | 2,000 GRPO prompts across 5 task levels |
-| 🤗 Fine-Tuned Model | [vssksn/intellicredit-mistral-7b-grpo](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) | Mistral-7B trained via GRPO on IntelliCredit-X |
+| 🤗 Fine-Tuned Model | [vssksn/intellicredit-mistral-7b-grpo](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) | **Post-trained on live environment** (2-stage GRPO) |
 | 💻 GitHub Repository | [1919-14/intellicredit-openenv](https://github.com/1919-14/intellicredit-openenv) | Full source code, MIT License |
 | 📖 API Docs | [Swagger UI](https://vssksn-intellicredit-openenv.hf.space/docs) | Interactive endpoint documentation |
+| 📓 Stage 1 Notebook | [Colab — Offline GRPO](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing) | Mistral-7B + Unsloth, ~45 min, A100 |
+| 🌍 Stage 2 Notebook | [colab_online_grpo.py (GitHub)](https://github.com/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.py) | Online GRPO — live env, real rewards |
 | 📊 Training Curves | [Figure 1](#what-the-training-curves-tell-us) | GRPO v2 training metrics |
 | 📊 Results Chart | [Figure 2](#results-before-vs-after-grpo) | Full evaluation comparison |
 

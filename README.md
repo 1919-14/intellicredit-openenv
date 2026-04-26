@@ -273,18 +273,43 @@ Anti-abuse: multiple decisions → last wins; reasoning < 50 chars → penalty; 
 
 ---
 
-## 🤖 GRPO Training Pipeline
+## 🤖 GRPO Training Pipeline — 2-Stage Approach
 
-Fine-tunes `mistralai/Mistral-7B-Instruct-v0.3` via **Group Relative Policy Optimization** using TRL + Unsloth on A100 80GB (~45 minutes).
+The final model [`vssksn/intellicredit-mistral-7b-grpo`](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) was trained using a **2-stage pipeline**: offline GRPO for speed and domain knowledge, then **online GRPO directly against the live IntelliCredit environment** for true behavioral alignment.
 
-### Training Dataset
+```
+┌─────────────────────────┐   ┌─────────────────────────┐
+│  STAGE 1 — Offline GRPO      │   │  STAGE 2 — Online GRPO       │
+│  (Speed-Optimised)           │   │  (Environment-Native)        │
+│                             │   │                             │
+│  Model : Mistral-7B-v0.3    │   │  Model : Mistral-7B (Stg 1) │
+│  Engine: Unsloth + TRL      │   │  Env   : Live HF Space       │
+│  Data  : 2,000 prompts      │   │  Data  : Real episodes       │
+│  Reward: 4 local functions  │   │  Reward: /step endpoint 100% │
+│  Speed : ~45 minutes        │   │  Type  : True Online RL      │
+│  Goal  : Domain knowledge   │   │  Goal  : True env alignment  │
+└──────────────┬──────────┘   └──────────────┬──────────┘
+               │                               │
+               └──────────────┬──────────────┘
+                              │
+                              ▼
+         vssksn/intellicredit-mistral-7b-grpo
+         Post-trained on live environment interactions
+```
 
+### Stage 1 — Offline GRPO (Speed-Optimised) 🚀
+
+**[📓 Stage 1 Colab Notebook](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing)** — Mistral-7B + Unsloth, A100, ~45 minutes
+
+Pre-trains on a curated 2,000-prompt dataset for maximum training speed and domain knowledge transfer.
+
+**Training Dataset:**
 - **2,000 prompts** — 400 per task level (task1–task5), ~2,400 chars each
 - Ground truth metadata: hidden PD, optimal action, hard rules, alerts, sector, CRAR, NPA
 - Distribution: **47.2%** hard rules triggered | **28.1%** RED forensic alerts
 - Published: [vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset)
 
-### 3-Stage Curriculum
+**3-Stage Curriculum:**
 
 | Stage | Data | LR | Temperature | Goal |
 |-------|------|----|-------------|------|
@@ -294,9 +319,25 @@ Fine-tunes `mistralai/Mistral-7B-Instruct-v0.3` via **Group Relative Policy Opti
 | Stage 3 | All tasks | 2e-6 | 0.8 | Long-horizon portfolio management |
 
 ```
-Config: rank=16 QLoRA, seq_len=2048, 8 generations/prompt
+Config: rank=16 QLoRA (Unsloth), seq_len=2048, 8 generations/prompt
         batch=2 + grad_accum=8 (effective=16), KL β=0.001
 ```
+
+### Stage 2 — Online GRPO (Environment-Native) 🌍
+
+**[🌍 Stage 2 Notebook — Online Training (GitHub)](https://github.com/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.py)** — Live env, 50-step episodes, real rewards, Mistral-7B
+
+Post-trains the Stage 1 model by **directly interacting with the live IntelliCredit environment**. Every single reward signal comes from the actual `/step` endpoint — this is true online RL, not a proxy.
+
+| Feature | Detail |
+|---------|--------|
+| Environment | [vssksn-intellicredit-openenv.hf.space](https://vssksn-intellicredit-openenv.hf.space) (live HTTP) |
+| Episode length | **50 steps** — full credit committee lifecycle |
+| **Reward source** | **`/step` endpoint — 100% environment-native** |
+| Tool calling | Multi-turn: tools → evidence → `submit_decision()` |
+| Reflection | Cross-episode memory bank (6 lesson categories, FIFO 20) |
+| Curriculum | 3 phases: task1 → task3 → all 5 tasks, temp 1.2→0.8 |
+| Model published | [vssksn/intellicredit-mistral-7b-grpo](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) |
 
 ### 🔧 Critical Training Bug Fixes
 
@@ -307,8 +348,6 @@ Config: rank=16 QLoRA, seq_len=2048, 8 generations/prompt
 | Loss Scale Instability | Raw log-prob sum scaled with sequence length → exploding gradients | Switch to per-token average: `loss = -sum(log_probs) / n_valid_tokens` |
 | Flat KL Divergence | `clamp(min=0)` → KL=0 when new policy more confident than reference | Changed to `abs()` for symmetric KL — always non-zero |
 | Zero-LP Episodes | Prompt filled entire 2048-token context → 0 completion tokens | Skip with `continue` when `sum(log_probs) == 0` |
-
-**Training Notebook:** [📓 Open in Colab](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing)
 
 ---
 

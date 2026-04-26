@@ -1,9 +1,10 @@
 """
 ╔══════════════════════════════════════════════════════════════════════╗
 ║  IntelliCredit — ONLINE GRPO Training (Full Environment Showcase)  ║
-║  Model: Qwen2.5-1.5B-Instruct (4-bit QLoRA)                       ║
+║  Model: mistralai/Mistral-7B-Instruct-v0.3 (4-bit QLoRA)          ║
 ║  Environment: https://vssksn-intellicredit-openenv.hf.space        ║
 ║  Features: Tool Calling, Multi-Agent, Reflection, 50-step Episodes ║
+║  Stage 2 of 2-stage GRPO pipeline — trains on LIVE environment     ║
 ╚══════════════════════════════════════════════════════════════════════╝
 """
 
@@ -22,10 +23,10 @@ from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-MODEL_NAME   = "Qwen/Qwen2.5-1.5B-Instruct"
+MODEL_NAME   = "mistralai/Mistral-7B-Instruct-v0.3"
 ENV_BASE_URL = "https://vssksn-intellicredit-openenv.hf.space"
 OUTPUT_BASE  = "intellicredit-online-grpo"
-FINAL_MODEL  = "qwen-intellicredit-online-final"
+FINAL_MODEL  = "intellicredit-mistral-7b-grpo"
 
 MAX_STEPS_PER_EP     = 50
 MAX_TOOL_CALLS       = 4
