@@ -14,7 +14,26 @@ jobs:
         with:
           fetch-depth: 0
           lfs: true
-      - name: Push to hub
+
+      - name: Push fresh snapshot to HF Space (no binary history)
         env:
           HF_TOKEN: ${{ secrets.TOKEN }}
-        run: git push --force https://vssksn:$HF_TOKEN@huggingface.co/spaces/vssksn/intellicredit-openenv HEAD:main
+        run: |
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+
+          # Create a clean orphan branch with only the current tree
+          # This avoids sending any binary files from old commits in history
+          git checkout --orphan hf-deploy
+          git add -A
+          # Remove any binary assets that HF Spaces can't accept without LFS
+          git rm --cached docs/assets/*.png 2>/dev/null || true
+          git rm --cached "**/*.png" 2>/dev/null || true
+          git rm --cached "**/*.jpg" 2>/dev/null || true
+          git rm --cached "**/*.jpeg" 2>/dev/null || true
+          git rm --cached "**/*.gif" 2>/dev/null || true
+          git rm --cached "**/*.ico" 2>/dev/null || true
+          git commit -m "sync: deploy snapshot $(date +'%Y-%m-%d %H:%M')"
+
+          # Force-push this single clean commit to HF main
+          git push --force https://vssksn:$HF_TOKEN@huggingface.co/spaces/vssksn/intellicredit-openenv hf-deploy:main
