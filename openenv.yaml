@@ -1,6 +1,16 @@
 spec_version: 1
-name: intellicredit_credit_appraisal
+version: "2.0"
+name: intellicredit_credit_appraisal_v2
+description: >
+  IntelliCredit v2 — Constrained Multi-Agent MDP for MSME credit underwriting.
+  50-step episodes, 55D observation space, tool calling, GRPO training pipeline.
 type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
+tasks:
+  - task1
+  - task2
+  - task3
+  - task4
+  - task5

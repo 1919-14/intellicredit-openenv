@@ -1,0 +1,104 @@
+{
+  "task1": {
+    "task_id": "task1",
+    "score": 0.4,
+    "total_reward": 2.95,
+    "decisions": [
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "breakdown": {
+      "accuracy": 0.4,
+      "correct_decisions": 2,
+      "total_decisions": 5,
+      "hard_rule_compliance": 1.0,
+      "forensic_handling": 1.0,
+      "npa_count": 0,
+      "npa_rate": 0.0,
+      "crar": 1.0,
+      "capital_utilization": 0.0,
+      "survival_rate": 1.0,
+      "episode_terminated": false,
+      "termination_reason": "",
+      "task_weights": {
+        "accuracy": 1.0
+      }
+    }
+  },
+  "task2": {
+    "task_id": "task2",
+    "score": 0.9375,
+    "total_reward": 11.4,
+    "decisions": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "breakdown": {
+      "accuracy": 0.875,
+      "correct_decisions": 7,
+      "total_decisions": 8,
+      "hard_rule_compliance": 1.0,
+      "forensic_handling": 1.0,
+      "npa_count": 0,
+      "npa_rate": 0.0,
+      "crar": 1.0,
+      "capital_utilization": 0.0,
+      "survival_rate": 1.0,
+      "episode_terminated": false,
+      "termination_reason": "",
+      "task_weights": {
+        "accuracy": 0.5,
+        "forensic_handling": 0.3,
+        "hard_rule_compliance": 0.2
+      }
+    }
+  },
+  "task3": {
+    "task_id": "task3",
+    "score": 0.7333,
+    "total_reward": 8.2,
+    "decisions": [
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2
+    ],
+    "breakdown": {
+      "accuracy": 0.5833,
+      "correct_decisions": 7,
+      "total_decisions": 12,
+      "hard_rule_compliance": 1.0,
+      "forensic_handling": 1.0,
+      "npa_count": 0,
+      "npa_rate": 0.0,
+      "crar": 1.0,
+      "capital_utilization": 0.0,
+      "survival_rate": 1.0,
+      "episode_terminated": false,
+      "termination_reason": "",
+      "task_weights": {
+        "accuracy": 0.4,
+        "missing_data_handling": 0.3,
+        "npa_avoidance": 0.2,
+        "capital_efficiency": 0.1
+      }
+    }
+  }
+}
