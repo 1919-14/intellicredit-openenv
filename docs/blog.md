@@ -16,7 +16,7 @@ tags: [reinforcement-learning, grpo, fintech, multi-agent, llm-finetuning, opene
 <div style="display: flex; gap: 10px; flex-wrap: wrap; margin: 20px 0;">
 
 [![HF Space](https://img.shields.io/badge/🤗_Space-Live_Demo-blue)](https://huggingface.co/spaces/vssksn/intellicredit-openenv)
-[![Dataset](https://img.shields.io/badge/🤗_Dataset-GRPO_Training_Data-green)](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset)
+[![Dataset](https://img.shields.io/badge/🤗_Dataset-GRPO_Training_Data-green)](https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2)
 [![Model](https://img.shields.io/badge/🤗_Model-Mistral--7B_GRPO-orange)](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo)
 [![GitHub](https://img.shields.io/badge/GitHub-intellicredit--openenv-black)](https://github.com/1919-14/intellicredit-openenv)
 [![API Docs](https://img.shields.io/badge/API-Swagger_UI-purple)](https://vssksn-intellicredit-openenv.hf.space/docs)
@@ -717,7 +717,7 @@ We believe in honest assessment of what IntelliCredit-X does not yet handle:
 | Resource | Link | Description |
 |---|---|---|
 | 🤗 Live Environment | [HF Space](https://huggingface.co/spaces/vssksn/intellicredit-openenv) | Interactive API + Swagger docs |
-| 🤗 Training Dataset | [vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset) | 2,000 GRPO prompts across 5 task levels |
+| 🤗 Training Dataset | [vssksn/intellicredit-grpo-v2](https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2) | 2,000 GRPO prompts across 5 task levels |
 | 🤗 Fine-Tuned Model | [vssksn/intellicredit-mistral-7b-grpo](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) | **Post-trained on live environment** (2-stage GRPO) |
 | 💻 GitHub Repository | [1919-14/intellicredit-openenv](https://github.com/1919-14/intellicredit-openenv) | Full source code, MIT License |
 | 📖 API Docs | [Swagger UI](https://vssksn-intellicredit-openenv.hf.space/docs) | Interactive endpoint documentation |

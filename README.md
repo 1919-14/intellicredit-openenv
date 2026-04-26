@@ -13,7 +13,7 @@ pinned: false
 <div align="center">
 
 [![HF Space](https://img.shields.io/badge/🤗_Space-Live_Demo-blue)](https://huggingface.co/spaces/vssksn/intellicredit-openenv)
-[![Dataset](https://img.shields.io/badge/🤗_Dataset-GRPO_Training_Data-green)](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset)
+[![Dataset](https://img.shields.io/badge/🤗_Dataset-GRPO_Training_Data-green)](https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2)
 [![Model](https://img.shields.io/badge/🤗_Model-Mistral--7B_GRPO-orange)](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo)
 [![GitHub](https://img.shields.io/badge/GitHub-intellicredit--openenv-black)](https://github.com/1919-14/intellicredit-openenv)
 [![API Docs](https://img.shields.io/badge/API-Swagger_UI-purple)](https://vssksn-intellicredit-openenv.hf.space/docs)
@@ -307,7 +307,7 @@ Pre-trains on a curated 2,000-prompt dataset for maximum training speed and doma
 - **2,000 prompts** — 400 per task level (task1–task5), ~2,400 chars each
 - Ground truth metadata: hidden PD, optimal action, hard rules, alerts, sector, CRAR, NPA
 - Distribution: **47.2%** hard rules triggered | **28.1%** RED forensic alerts
-- Published: [vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset)
+- Published: [vssksn/intellicredit-grpo-v2](https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2)
 
 **3-Stage Curriculum:**
 
@@ -546,7 +546,7 @@ Two evaluation approaches:
 |----------|------|
 | 🤗 **Live Environment** | [huggingface.co/spaces/vssksn/intellicredit-openenv](https://huggingface.co/spaces/vssksn/intellicredit-openenv) |
 | 🤗 **GRPO Model** | [huggingface.co/vssksn/intellicredit-mistral-7b-grpo](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo) |
-| 🤗 **Training Dataset** | [huggingface.co/datasets/vssksn/intellicredit-grpo-dataset](https://huggingface.co/datasets/vssksn/intellicredit-grpo-dataset) |
+| 🤗 **Training Dataset** | [huggingface.co/datasets/vssksn/intellicredit-grpo-v2](https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2) |
 | 💻 **GitHub (v2 branch)** | [github.com/1919-14/intellicredit-openenv/tree/v2](https://github.com/1919-14/intellicredit-openenv/tree/v2) |
 | 📖 **API Swagger** | [vssksn-intellicredit-openenv.hf.space/docs](https://vssksn-intellicredit-openenv.hf.space/docs) |
 | 📝 **Full Blog Post** | [docs/blog.md](./docs/blog.md) |
