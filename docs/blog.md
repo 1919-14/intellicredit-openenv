@@ -26,6 +26,8 @@ tags: [reinforcement-learning, grpo, fintech, multi-agent, llm-finetuning, opene
 
 *By **V S S K Sai Narayana** & **Sujeet Jaiswal** — Meta × Hugging Face OpenEnv Hackathon 2026*
 
+> **⏱️ Short on time?** Read the [📝 Mini Blog — 2-minute storytelling version](./mini_blog.md) for the highlights and proof charts.
+
 ---
 
 ## Table of Contents
@@ -725,6 +727,7 @@ We believe in honest assessment of what IntelliCredit-X does not yet handle:
 | 🌍 Stage 2 Notebook | [colab_online_grpo.ipynb (Colab)](https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/main/training/colab_online_grpo.ipynb) | Online GRPO — live env, real rewards |
 | 📊 Training Curves | [Figure 1](#what-the-training-curves-tell-us) | GRPO v2 training metrics |
 | 📊 Results Chart | [Figure 2](#results-before-vs-after-grpo) | Full evaluation comparison |
+| 📝 Mini Blog | [docs/mini_blog.md](./mini_blog.md) | 2-minute storytelling version with proof charts |
 
 ---
 

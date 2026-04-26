@@ -17,6 +17,7 @@ pinned: false
 [![Model](https://img.shields.io/badge/🤗_Model-Mistral--7B_GRPO-orange)](https://huggingface.co/vssksn/intellicredit-mistral-7b-grpo)
 [![GitHub](https://img.shields.io/badge/GitHub-intellicredit--openenv-black)](https://github.com/1919-14/intellicredit-openenv)
 [![API Docs](https://img.shields.io/badge/API-Swagger_UI-purple)](https://vssksn-intellicredit-openenv.hf.space/docs)
+[![Mini Blog](https://img.shields.io/badge/📝_Mini_Blog-Story_&_Results-ff6600)](./docs/mini_blog.md)
 [![Blog](https://img.shields.io/badge/📖_Blog-Full_Technical_Writeup-teal)](./docs/blog.md)
 [![Colab](https://img.shields.io/badge/Colab-GRPO_Training_Notebook-yellow)](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing)
 [![License](https://img.shields.io/badge/License-MIT-red)](LICENSE)
@@ -30,14 +31,23 @@ pinned: false
 
 ---
 
-## 📖 Want the Full Story? Read the Blog
+## 📝 Start Here — Mini Blog (2-Minute Read)
 
-> ### ➡️ [IntelliCredit-X: Teaching an LLM to Think Like a Credit Officer Using Multi-Agent RL and GRPO](./docs/blog.md)
+> ### ➡️ [The Story of Teaching an AI to Catch What Humans Miss](./docs/mini_blog.md)
 >
-> *~5,000 words · Fully illustrated · Deep technical walkthrough*  
-> Covers: the real-world MSME problem → 3-agent architecture → 55D observation space → tool calling system → sparse reward design → GRPO 3-stage curriculum → what the training curves actually tell you → qualitative before/after examples → 4 critical bugs we had to fix → honest limitations.
+> *Quick read · Storytelling format · Both proof charts included · The "why" behind IntelliCredit-X*  
+> The real-world MSME problem → what we built → how we trained it → the proof it works → a real before/after example.
 >
-> **[🚀 Read the Blog →](./docs/blog.md)**
+> **[🚀 Read the Mini Blog →](./docs/mini_blog.md)**
+
+## 📖 Want the Full Technical Deep Dive?
+
+> ### ➡️ [IntelliCredit-X: Full Technical Writeup (~5,000 words)](./docs/blog.md)
+>
+> *Deep technical walkthrough · Fully illustrated*  
+> Covers: 3-agent architecture → 55D observation space → tool calling system → sparse reward design → GRPO 3-stage curriculum → training curves analysis → qualitative before/after examples → 4 critical bugs we had to fix → honest limitations.
+>
+> **[📖 Read the Full Blog →](./docs/blog.md)**
 
 ---
 
@@ -549,7 +559,8 @@ Two evaluation approaches:
 | 🤗 **Training Dataset** | [huggingface.co/datasets/vssksn/intellicredit-grpo-v2](https://huggingface.co/datasets/vssksn/intellicredit-grpo-v2) |
 | 💻 **GitHub (v2 branch)** | [github.com/1919-14/intellicredit-openenv/tree/v2](https://github.com/1919-14/intellicredit-openenv/tree/v2) |
 | 📖 **API Swagger** | [vssksn-intellicredit-openenv.hf.space/docs](https://vssksn-intellicredit-openenv.hf.space/docs) |
-| 📝 **Full Blog Post** | [docs/blog.md](./docs/blog.md) |
+| 📝 **Mini Blog (Story & Results)** | [docs/mini_blog.md](./docs/mini_blog.md) |
+| 📖 **Full Technical Blog** | [docs/blog.md](./docs/blog.md) |
 | 📓 **Colab Training Notebook** | [Open in Colab](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing) |
 | 📊 **Project Summary** | [PROJECT_SUMMARY.md](./PROJECT_SUMMARY.md) |
 | 📋 **Env Info API** | [/info endpoint](https://vssksn-intellicredit-openenv.hf.space/info) |

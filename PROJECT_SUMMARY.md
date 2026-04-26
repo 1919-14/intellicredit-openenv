@@ -19,7 +19,8 @@
 | 📓 Colab Training Notebook | [Open in Colab](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing) |
 | 💻 GitHub Repository | [1919-14/intellicredit-openenv](https://github.com/1919-14/intellicredit-openenv) |
 | 📖 API Docs | [Swagger UI](https://vssksn-intellicredit-openenv.hf.space/docs) |
-| 📝 Full Blog Post | [docs/blog.md](./docs/blog.md) |
+| 📝 Mini Blog (Story & Results) | [docs/mini_blog.md](./docs/mini_blog.md) |
+| 📖 Full Blog Post | [docs/blog.md](./docs/blog.md) |
 
 ---
 
@@ -320,6 +321,7 @@ The biggest reward jump happens at the Stage 1→2 transition (when forensic ale
 | `compare_results.py` | Bar chart comparison generator | P8 |
 | `models.py` | Pydantic schemas (55D observation, action) | P1 |
 | `inference.py` | LLM inference wrapper | P0 |
+| `docs/mini_blog.md` | Mini blog — storytelling format, 2-min read, proof charts | P8 |
 | `docs/blog.md` | Full technical blog post (~5,000 words) | P8 |
 | `docs/assets/comparison.png` | Baseline vs GRPO results chart | P8 |
 | `docs/assets/training_curves.png` | GRPO training curves (Mistral-7B, A100) | P8 |
