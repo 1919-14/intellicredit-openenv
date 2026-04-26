@@ -325,7 +325,7 @@ Config: rank=16 QLoRA (Unsloth), seq_len=2048, 8 generations/prompt
 
 ### Stage 2 — Online GRPO (Environment-Native) 🌍
 
-**[🌍 Stage 2 Notebook — Online Training (GitHub)](https://github.com/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.py)** — Live env, 50-step episodes, real rewards, Mistral-7B
+**[🌍 Stage 2 Notebook — Online Training (Colab)](https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.ipynb)** — Live env, 50-step episodes, real rewards, Mistral-7B
 
 Post-trains the Stage 1 model by **directly interacting with the live IntelliCredit environment**. Every single reward signal comes from the actual `/step` endpoint — this is true online RL, not a proxy.
 

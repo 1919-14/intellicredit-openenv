@@ -608,7 +608,7 @@ Uses a pre-generated 2,000-prompt dataset + 4 local reward functions. No live se
 # Then open and run training/colab_grpo_3b_v2.py
 ```
 
-**[🌍 Stage 2 — Online GRPO (Environment-Native)](https://github.com/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.py)**
+**[🌍 Stage 2 — Online GRPO (Environment-Native)](https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.ipynb)**
 
 Connects to the live IntelliCredit environment. Every reward comes from the real `/step` endpoint. 50-step episodes with actual multi-agent pressure. This is how `vssksn/intellicredit-mistral-7b-grpo` was post-trained.
 
@@ -722,7 +722,7 @@ We believe in honest assessment of what IntelliCredit-X does not yet handle:
 | 💻 GitHub Repository | [1919-14/intellicredit-openenv](https://github.com/1919-14/intellicredit-openenv) | Full source code, MIT License |
 | 📖 API Docs | [Swagger UI](https://vssksn-intellicredit-openenv.hf.space/docs) | Interactive endpoint documentation |
 | 📓 Stage 1 Notebook | [Colab — Offline GRPO](https://colab.research.google.com/drive/1HhVu1JezKoT32zfHIEfAFersxRrwZSYu?usp=sharing) | Mistral-7B + Unsloth, ~45 min, A100 |
-| 🌍 Stage 2 Notebook | [colab_online_grpo.py (GitHub)](https://github.com/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.py) | Online GRPO — live env, real rewards |
+| 🌍 Stage 2 Notebook | [colab_online_grpo.ipynb (Colab)](https://colab.research.google.com/github/1919-14/intellicredit-openenv/blob/v2/training/colab_online_grpo.ipynb) | Online GRPO — live env, real rewards |
 | 📊 Training Curves | [Figure 1](#what-the-training-curves-tell-us) | GRPO v2 training metrics |
 | 📊 Results Chart | [Figure 2](#results-before-vs-after-grpo) | Full evaluation comparison |
 
