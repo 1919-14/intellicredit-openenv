@@ -122,6 +122,14 @@ app.version = "2.0.0"
 
 from fastapi.responses import HTMLResponse, RedirectResponse
 
+# OpenEnv's create_app() registers a "/" route that redirects to /docs.
+# FastAPI matches routes in registration order, so we must remove that route
+# before registering our HTML landing page, otherwise it never gets reached.
+app.router.routes = [
+    r for r in app.router.routes
+    if not (hasattr(r, "path") and r.path == "/")
+]
+
 @app.get("/", response_class=HTMLResponse)
 def read_root():
     """IntelliCredit project landing page."""
