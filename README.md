@@ -23,7 +23,7 @@ pinned: false
 [![OpenEnv](https://img.shields.io/badge/OpenEnv-Compatible-blueviolet)](https://github.com/meta-pytorch/openenv)
 
 **By V S S K Sai Narayana & Sujeet Jaiswal**  
-*Meta × Hugging Face OpenEnv Hackathon 2025*
+*Meta × Hugging Face OpenEnv Hackathon 2026*
 
 </div>
 
@@ -35,7 +35,8 @@ pinned: false
 
 ## 📊 Results at a Glance
 
-![IntelliCredit Baseline vs. Post-Training GRPO](./docs/assets/comparison.png)
+<img width="1600" height="884" alt="051701af-7e29-4e6c-8895-f0c9b6569cf2" src="https://github.com/user-attachments/assets/1e4e4a05-9327-45c4-aed7-239ab8d74bbc" />
+
 
 *Baseline Mistral-7B-Instruct-v0.3 (blue) vs. GRPO-trained IntelliCredit model (green) — **zero regressions across all 24 metric-task combinations.***
 
@@ -94,7 +95,8 @@ Step T = 1..50:
 
 ## 🧠 Training Curves
 
-![GRPO Training Curves — Mistral-7B A100 + Unsloth](./docs/assets/training_curves.png)
+<img width="1600" height="1142" alt="c54ed1cb-564e-40bd-81be-d56a76d9713f" src="https://github.com/user-attachments/assets/dd6b90ad-60d5-432e-9e1b-47cbcdab183e" />
+
 
 *IntelliCredit GRPO v2 training across 3 curriculum stages. Note the key inflection points at stage transitions (dashed lines):*
 
@@ -368,7 +370,7 @@ docker run -p 7860:7860 -e HF_TOKEN="your-token" intellicredit-v2
   title   = {IntelliCredit-X: A Multi-Agent Constrained MDP for MSME Credit
              Appraisal with GRPO Fine-Tuning},
   author  = {Narayana, V S S K Sai and Jaiswal, Sujeet},
-  year    = {2025},
+  year    = {2026},
   note    = {OpenEnv Hackathon Submission — Meta × Hugging Face},
   url     = {https://huggingface.co/spaces/vssksn/intellicredit-openenv}
 }
@@ -382,4 +384,4 @@ MIT License — See [LICENSE](LICENSE) for details.
 
 ---
 
-*Built by **V S S K Sai Narayana** & **Sujeet Jaiswal** for the Meta × Hugging Face OpenEnv Hackathon 2025.*
+*Built by **V S S K Sai Narayana** & **Sujeet Jaiswal** for the Meta × Hugging Face OpenEnv Hackathon 2026.*
